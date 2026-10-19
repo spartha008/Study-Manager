@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StudyBuddy - Smart Student Study Planner & Dashboard</title>
+  <meta name="description" content="StudyBuddy is a clean, modern study management platform for students. Track assignments, plan daily study timetables, organize notes, and monitor your academic progress.">
+  
+  <!-- Google Fonts: Plus Jakarta Sans & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Mobile Header -->
+    <header class="mobile-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <i class="fa-solid fa-graduation-cap"></i>
+        </div>
+        <span class="brand-name">StudyBuddy</span>
+      </div>
+      <div class="mobile-actions">
+        <button id="mobile-menu-btn" class="icon-btn" aria-label="Toggle Navigation Menu">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="logo-icon">
+            <i class="fa-solid fa-graduation-cap"></i>
+          </div>
+          <div class="brand-text">
+            <span class="brand-name">StudyBuddy</span>
+            <span class="brand-subtitle">Student Workspace</span>
+          </div>
+        </div>
+        <button id="close-sidebar-btn" class="icon-btn close-sidebar" aria-label="Close Sidebar">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Quick User Card -->
+      <div class="user-profile-badge">
+        <div class="avatar">
+          <i class="fa-solid fa-user-graduate"></i>
+        </div>
+        <div class="user-info">
+          <span class="user-name" id="display-user-name">Alex Rivera</span>
+          <span class="user-level"><i class="fa-solid fa-fire text-amber"></i> 5 Day Streak</span>
+        </div>
+      </div>
+
+      <!-- Navigation Links -->
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="dashboard">
+          <i class="fa-solid fa-table-columns"></i>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-tab="assignments">
+          <i class="fa-solid fa-list-check"></i>
+          <span>Assignments</span>
+          <span class="badge" id="pending-badge">0</span>
+        </button>
+        <button class="nav-item" data-tab="timetable">
+          <i class="fa-solid fa-calendar-days"></i>
+          <span>Study Timetable</span>
+        </button>
+        <button class="nav-item" data-tab="notes">
+          <i class="fa-solid fa-book-open"></i>
+          <span>Notes & Ideas</span>
+        </button>
+        <button class="nav-item" data-tab="progress">
+          <i class="fa-solid fa-chart-line"></i>
+          <span>Progress & Timer</span>
+        </button>
+      </nav>
+
+      <!-- Mini Pomodoro Box in Sidebar -->
+      <div class="sidebar-widget">
+        <div class="widget-header">
+          <span><i class="fa-solid fa-stopwatch text-primary"></i> Quick Timer</span>
+          <span id="sidebar-timer-mode" class="widget-tag">Focus</span>
+        </div>
+        <div class="widget-timer-display" id="sidebar-timer-time">25:00</div>
+        <div class="widget-controls">
+          <button id="sidebar-timer-start-btn" class="btn btn-sm btn-primary">
+            <i class="fa-solid fa-play"></i> Start
+          </button>
+          <button id="sidebar-timer-reset-btn" class="btn btn-sm btn-ghost">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Footer Help & Reset -->
+      <div class="sidebar-footer">
+        <button id="reset-demo-data-btn" class="btn-text">
+          <i class="fa-solid fa-clock-rotate-left"></i> Reset Demo Data
+        </button>
+      </div>
+    </aside>
+
+    <!-- Overlay for mobile drawer -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Top Bar on Desktop -->
+      <header class="topbar">
+        <div class="topbar-greeting">
+          <h1 id="page-title">Welcome back, Alex! 👋</h1>
+          <p class="subtitle" id="current-date-display">Monday, October 19, 2026</p>
+        </div>
+        <div class="topbar-actions">
+          <div class="quick-stat-pill">
+            <i class="fa-solid fa-circle-check text-emerald"></i>
+            <span id="quick-done-count">0 Completed</span>
+          </div>
+          <button id="quick-add-task-btn" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i>
+            <span>New Assignment</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- TAB 1: DASHBOARD -->
+      <section class="tab-pane active" id="tab-dashboard">
+        <!-- Motivational Banner -->
+        <div class="quote-banner">
+          <div class="quote-content">
+            <span class="quote-tag">Daily Inspiration</span>
+            <p class="quote-text" id="quote-text">"Success is the sum of small efforts, repeated day in and day out."</p>
+            <span class="quote-author" id="quote-author">— Robert Collier</span>
+          </div>
+          <div class="quote-illustration">
+            <i class="fa-solid fa-lightbulb"></i>
+          </div>
+        </div>
+
+        <!-- Metric Cards -->
+        <div class="metrics-grid">
+          <div class="metric-card" data-metric="pending">
+            <div class="metric-icon bg-blue-subtle text-blue">
+              <i class="fa-solid fa-clock"></i>
+            </div>
+            <div class="metric-info">
+              <span class="metric-value" id="stat-pending">0</span>
+              <span class="metric-label">Pending Tasks</span>
+            </div>
+            <button class="metric-link" data-tab="assignments"><i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+
+          <div class="metric-card" data-metric="completed">
+            <div class="metric-icon bg-emerald-subtle text-emerald">
+              <i class="fa-solid fa-circle-check"></i>
+            </div>
+            <div class="metric-info">
+              <span class="metric-value" id="stat-completed">0</span>
+              <span class="metric-label">Completed Tasks</span>
+            </div>
+            <button class="metric-link" data-tab="assignments"><i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+
+          <div class="metric-card" data-metric="today-sessions">
+            <div class="metric-icon bg-sky-subtle text-primary">
+              <i class="fa-solid fa-calendar-check"></i>
+            </div>
+            <div class="metric-info">
+              <span class="metric-value" id="stat-today-slots">0</span>
+              <span class="metric-label">Today's Sessions</span>
+            </div>
+            <button class="metric-link" data-tab="timetable"><i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+
+          <div class="metric-card" data-metric="study-hours">
+            <div class="metric-icon bg-purple-subtle text-purple">
+              <i class="fa-solid fa-stopwatch"></i>
+            </div>
+            <div class="metric-info">
+              <span class="metric-value" id="stat-study-time">0m</span>
+              <span class="metric-label">Focused Time</span>
+            </div>
+            <button class="metric-link" data-tab="progress"><i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+        </div>
+
+        <!-- 2 Column Section: Today's Priorities & Today's Schedule -->
+        <div class="dashboard-grid">
+          <!-- Left: Urgent / Upcoming Assignments -->
+          <div class="card dashboard-card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <i class="fa-solid fa-fire text-amber"></i>
+                <h2>Upcoming Assignments</h2>
+              </div>
+              <button class="btn btn-sm btn-outline" data-tab="assignments">View All</button>
+            </div>
+            <div class="card-body">
+              <div class="task-list-compact" id="dashboard-urgent-tasks">
+                <!-- Dynamically injected -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Today's Study Schedule -->
+          <div class="card dashboard-card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <i class="fa-solid fa-calendar-day text-primary"></i>
+                <h2>Today's Timetable</h2>
+              </div>
+              <button class="btn btn-sm btn-outline" data-tab="timetable">Full Schedule</button>
+            </div>
+            <div class="card-body">
+              <div class="timeline-compact" id="dashboard-today-schedule">
+                <!-- Dynamically injected -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Notes & Goal Quick Look -->
+        <div class="dashboard-grid dashboard-grid-secondary">
+          <!-- Recent Study Notes -->
+          <div class="card dashboard-card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <i class="fa-solid fa-note-sticky text-sky"></i>
+                <h2>Quick Notes</h2>
+              </div>
+              <button class="btn btn-sm btn-ghost" id="dash-new-note-btn"><i class="fa-solid fa-plus"></i> Add Note</button>
+            </div>
+            <div class="card-body">
+              <div class="notes-mini-grid" id="dashboard-recent-notes">
+                <!-- Dynamically injected -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Overall Weekly Target Bar -->
+          <div class="card dashboard-card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <i class="fa-solid fa-bullseye text-emerald"></i>
+                <h2>Weekly Goal Completion</h2>
+              </div>
+              <span class="badge badge-success" id="dash-goal-percent">0%</span>
+            </div>
+            <div class="card-body">
+              <p class="text-muted text-sm mb-2">Track completion across all assignments and timetable sessions.</p>
+              <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="dash-progress-fill" style="width: 0%"></div>
+              </div>
+              <div class="goal-subtext">
+                <span id="dash-completed-ratio">0 of 0 items done</span>
+                <span class="text-primary font-medium" id="dash-encouragement">Keep going!</span>
+              </div>
+              <div class="quick-action-links mt-4">
+                <button class="quick-action-chip" id="chip-add-task"><i class="fa-solid fa-plus"></i> Add Assignment</button>
+                <button class="quick-action-chip" id="chip-add-schedule"><i class="fa-solid fa-calendar-plus"></i> Add Slot</button>
+                <button class="quick-action-chip" id="chip-start-focus"><i class="fa-solid fa-play"></i> 25m Focus</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: ASSIGNMENTS / TO-DO LIST -->
+      <section class="tab-pane" id="tab-assignments">
+        <div class="section-header">
+          <div>
+            <h2>Assignments & Tasks</h2>
+            <p class="subtitle">Keep track of your coursework, homework, exams, and projects.</p>
+          </div>
+          <button id="add-assignment-modal-btn" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> New Assignment
+          </button>
+        </div>
+
+        <!-- Filter and Search Bar -->
+        <div class="filter-toolbar card">
+          <div class="search-input-wrapper">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" id="task-search-input" placeholder="Search assignments by title or subject..." class="form-input">
+          </div>
+          
+          <div class="filter-groups">
+            <div class="filter-select-wrapper">
+              <label for="task-filter-status" class="filter-label">Status:</label>
+              <select id="task-filter-status" class="form-select">
+                <option value="all">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+
+            <div class="filter-select-wrapper">
+              <label for="task-filter-priority" class="filter-label">Priority:</label>
+              <select id="task-filter-priority" class="form-select">
+                <option value="all">All Priorities</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+
+            <div class="filter-select-wrapper">
+              <label for="task-filter-subject" class="filter-label">Subject:</label>
+              <select id="task-filter-subject" class="form-select">
+                <option value="all">All Subjects</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Task List Container -->
+        <div class="tasks-container">
+          <div class="tasks-header-summary">
+            <span id="tasks-count-label">Showing 0 assignments</span>
+            <div class="bulk-actions">
+              <button id="clear-completed-tasks-btn" class="btn btn-sm btn-ghost text-muted">
+                <i class="fa-solid fa-trash-can"></i> Clear Completed
+              </button>
+            </div>
+          </div>
+
+          <div class="task-cards-list" id="task-cards-list">
+            <!-- Dynamic task items -->
+          </div>
+
+          <!-- Empty State -->
+          <div class="empty-state hidden" id="tasks-empty-state">
+            <div class="empty-icon"><i class="fa-solid fa-clipboard-check"></i></div>
+            <h3>No assignments found</h3>
+            <p>You're all caught up! Click below to create a new assignment.</p>
+            <button class="btn btn-primary mt-3" id="empty-state-add-task-btn">
+              <i class="fa-solid fa-plus"></i> Add Assignment
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: DAILY STUDY TIMETABLE -->
+      <section class="tab-pane" id="tab-timetable">
+        <div class="section-header">
+          <div>
+            <h2>Daily Study Timetable</h2>
+            <p class="subtitle">Structure your day with dedicated study slots, lectures, and revision times.</p>
+          </div>
+          <button id="add-timetable-slot-btn" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> Add Study Slot
+          </button>
+        </div>
+
+        <!-- Day Selector Tabs -->
+        <div class="day-selector-card card">
+          <div class="days-nav" id="days-nav">
+            <button class="day-chip active" data-day="Monday">Mon</button>
+            <button class="day-chip" data-day="Tuesday">Tue</button>
+            <button class="day-chip" data-day="Wednesday">Wed</button>
+            <button class="day-chip" data-day="Thursday">Thu</button>
+            <button class="day-chip" data-day="Friday">Fri</button>
+            <button class="day-chip" data-day="Saturday">Sat</button>
+            <button class="day-chip" data-day="Sunday">Sun</button>
+          </div>
+          <div class="day-header-summary">
+            <h3 id="current-selected-day-title">Monday Schedule</h3>
+            <span class="day-slot-count" id="day-slot-count">0 Sessions Planned</span>
+          </div>
+        </div>
+
+        <!-- Schedule Slots List -->
+        <div class="timetable-container">
+          <div class="schedule-timeline" id="timetable-slots-list">
+            <!-- Dynamically populated timetable items -->
+          </div>
+
+          <!-- Empty State for Day -->
+          <div class="empty-state hidden" id="timetable-empty-state">
+            <div class="empty-icon"><i class="fa-solid fa-calendar-xmark"></i></div>
+            <h3>No study slots for this day</h3>
+            <p>Plan your focus blocks to stay ahead in your coursework.</p>
+            <button class="btn btn-primary mt-3" id="empty-state-add-slot-btn">
+              <i class="fa-solid fa-plus"></i> Add First Slot
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: NOTES SECTION -->
+      <section class="tab-pane" id="tab-notes">
+        <div class="section-header">
+          <div>
+            <h2>Study Notes & Ideas</h2>
+            <p class="subtitle">Quickly capture lecture takeaways, exam tips, and revision summaries.</p>
+          </div>
+          <button id="add-note-btn" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> New Note
+          </button>
+        </div>
+
+        <!-- Search and Subject Filter for Notes -->
+        <div class="filter-toolbar card">
+          <div class="search-input-wrapper">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" id="note-search-input" placeholder="Search notes by title or content..." class="form-input">
+          </div>
+          <div class="filter-groups">
+            <div class="filter-select-wrapper">
+              <label for="note-filter-subject" class="filter-label">Filter Subject:</label>
+              <select id="note-filter-subject" class="form-select">
+                <option value="all">All Subjects</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notes Grid -->
+        <div class="notes-grid" id="notes-grid">
+          <!-- Dynamically populated note cards -->
+        </div>
+
+        <!-- Empty State for Notes -->
+        <div class="empty-state hidden" id="notes-empty-state">
+          <div class="empty-icon"><i class="fa-solid fa-book"></i></div>
+          <h3>No study notes yet</h3>
+          <p>Organize formulas, key concepts, and summaries here.</p>
+          <button class="btn btn-primary mt-3" id="empty-state-add-note-btn">
+            <i class="fa-solid fa-plus"></i> Create Note
+          </button>
+        </div>
+      </section>
+
+      <!-- TAB 5: PROGRESS TRACKER & FOCUS TIMER -->
+      <section class="tab-pane" id="tab-progress">
+        <div class="section-header">
+          <div>
+            <h2>Academic Progress & Focus Hub</h2>
+            <p class="subtitle">Evaluate your study productivity, task completion rates, and run focused study sprints.</p>
+          </div>
+        </div>
+
+        <div class="progress-layout-grid">
+          <!-- Left Column: Pomodoro Focus Timer -->
+          <div class="card timer-card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <i class="fa-solid fa-stopwatch text-primary"></i>
+                <h2>Pomodoro Focus Timer</h2>
+              </div>
+              <span class="badge badge-sky" id="pomodoro-sessions-counter">0 Sessions Today</span>
+            </div>
+            <div class="card-body timer-body">
+              <!-- Mode Selection -->
+              <div class="timer-modes">
+                <button class="mode-btn active" data-mode="pomodoro">Study (25m)</button>
+                <button class="mode-btn" data-mode="shortBreak">Short Break (5m)</button>
+                <button class="mode-btn" data-mode="longBreak">Long Break (15m)</button>
+              </div>
+
+              <!-- Big Circular Timer Display -->
+              <div class="timer-clock-wrapper">
+                <svg class="timer-svg" viewBox="0 0 200 200">
+                  <circle class="timer-circle-bg" cx="100" cy="100" r="90" />
+                  <circle class="timer-circle-progress" id="timer-progress-circle" cx="100" cy="100" r="90" />
+                </svg>
+                <div class="timer-center-content">
+                  <span class="timer-display-digits" id="timer-display">25:00</span>
+                  <span class="timer-status-label" id="timer-status-text">Ready to focus</span>
+                </div>
+              </div>
+
+              <!-- Controls -->
+              <div class="timer-main-controls">
+                <button id="timer-toggle-btn" class="btn btn-lg btn-primary">
+                  <i class="fa-solid fa-play"></i> Start Session
+                </button>
+                <button id="timer-reset-btn" class="btn btn-lg btn-outline" title="Reset Timer">
+                  <i class="fa-solid fa-rotate-left"></i>
+                </button>
+                <button id="timer-skip-btn" class="btn btn-lg btn-ghost" title="Skip to next">
+                  <i class="fa-solid fa-forward-step"></i>
+                </button>
+              </div>
+
+              <!-- Focus Tips -->
+              <div class="timer-tip">
+                <i class="fa-regular fa-lightbulb"></i>
+                <span>Tip: Work in distraction-free 25-minute sprints with 5-minute pauses to preserve high retention.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Analytics & Progress Metrics -->
+          <div class="progress-metrics-column">
+            <!-- Overall Task Mastery -->
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title-group">
+                  <i class="fa-solid fa-list-check text-blue"></i>
+                  <h2>Assignment Completion</h2>
+                </div>
+                <span class="badge badge-primary" id="completion-percentage-badge">0%</span>
+              </div>
+              <div class="card-body">
+                <div class="progress-bar-container">
+                  <div class="progress-bar-fill bg-gradient-blue" id="progress-assignments-bar" style="width: 0%"></div>
+                </div>
+                <div class="stats-two-col mt-3">
+                  <div class="stat-box">
+                    <span class="stat-num text-primary" id="prog-completed-tasks">0</span>
+                    <span class="stat-desc">Assignments Done</span>
+                  </div>
+                  <div class="stat-box">
+                    <span class="stat-num text-muted" id="prog-pending-tasks">0</span>
+                    <span class="stat-desc">Remaining</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Subject Breakdown -->
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title-group">
+                  <i class="fa-solid fa-chart-pie text-emerald"></i>
+                  <h2>Assignments by Subject</h2>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="subject-breakdown-list" id="subject-breakdown-list">
+                  <!-- Dynamically populated subject bars -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Study Streak & Productivity Summary -->
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title-group">
+                  <i class="fa-solid fa-medal text-amber"></i>
+                  <h2>Weekly Study Habits</h2>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="streak-banner">
+                  <div class="streak-icon">
+                    <i class="fa-solid fa-fire text-amber"></i>
+                  </div>
+                  <div class="streak-details">
+                    <h4>5 Day Study Streak Active!</h4>
+                    <p class="text-sm text-muted">You've logged in and completed study tasks consistently this week.</p>
+                  </div>
+                </div>
+                
+                <div class="weekly-streak-days" id="weekly-streak-days">
+                  <div class="day-bubble done"><span>M</span><i class="fa-solid fa-check"></i></div>
+                  <div class="day-bubble done"><span>T</span><i class="fa-solid fa-check"></i></div>
+                  <div class="day-bubble done"><span>W</span><i class="fa-solid fa-check"></i></div>
+                  <div class="day-bubble done"><span>T</span><i class="fa-solid fa-check"></i></div>
+                  <div class="day-bubble done"><span>F</span><i class="fa-solid fa-check"></i></div>
+                  <div class="day-bubble"><span>S</span></div>
+                  <div class="day-bubble"><span>S</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- MODAL: ADD / EDIT ASSIGNMENT -->
+  <div class="modal-backdrop" id="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="task-modal-title">Add New Assignment</h3>
+        <button class="modal-close-btn" id="close-task-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="task-form">
+        <input type="hidden" id="task-id">
+        <div class="form-group">
+          <label for="task-title-input" class="form-label">Assignment Title *</label>
+          <input type="text" id="task-title-input" class="form-input" placeholder="e.g. Calculus Chapter 4 Problem Set" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-subject-input" class="form-label">Subject *</label>
+            <input type="text" id="task-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Mathematics" required>
+            <datalist id="subject-suggestions">
+              <option value="Mathematics">
+              <option value="Physics">
+              <option value="Computer Science">
+              <option value="Chemistry">
+              <option value="Biology">
+              <option value="History">
+              <option value="Literature">
+              <option value="Economics">
+            </datalist>
+          </div>
+
+          <div class="form-group">
+            <label for="task-priority-input" class="form-label">Priority</label>
+            <select id="task-priority-input" class="form-select">
+              <option value="high">High (Urgent)</option>
+              <option value="medium" selected>Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-due-date-input" class="form-label">Due Date *</label>
+            <input type="date" id="task-due-date-input" class="form-input" required>
+          </div>
+
+          <div class="form-group">
+            <label for="task-estimated-time-input" class="form-label">Est. Time (minutes)</label>
+            <input type="number" id="task-estimated-time-input" class="form-input" min="5" step="5" placeholder="e.g. 60" value="45">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="task-description-input" class="form-label">Notes & Instructions (Optional)</label>
+          <textarea id="task-description-input" class="form-textarea" rows="3" placeholder="Add specific requirements, textbook pages, or submission instructions..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-task-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-task-btn">Save Assignment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / EDIT TIMETABLE SLOT -->
+  <div class="modal-backdrop" id="timetable-modal" role="dialog" aria-modal="true" aria-labelledby="timetable-modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="timetable-modal-title">Add Study Slot</h3>
+        <button class="modal-close-btn" id="close-timetable-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="timetable-form">
+        <input type="hidden" id="slot-id">
+        <div class="form-group">
+          <label for="slot-day-select" class="form-label">Day of Week *</label>
+          <select id="slot-day-select" class="form-select" required>
+            <option value="Monday">Monday</option>
+            <option value="Tuesday">Tuesday</option>
+            <option value="Wednesday">Wednesday</option>
+            <option value="Thursday">Thursday</option>
+            <option value="Friday">Friday</option>
+            <option value="Saturday">Saturday</option>
+            <option value="Sunday">Sunday</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="slot-title-input" class="form-label">Session Topic / Activity *</label>
+          <input type="text" id="slot-title-input" class="form-input" placeholder="e.g. Algorithms & Data Structures Lecture" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="slot-subject-input" class="form-label">Subject *</label>
+            <input type="text" id="slot-subject-input" class="form-input" placeholder="e.g. Computer Science" required>
+          </div>
+
+          <div class="form-group">
+            <label for="slot-type-select" class="form-label">Activity Type</label>
+            <select id="slot-type-select" class="form-select">
+              <option value="Lecture">Lecture / Class</option>
+              <option value="Self Study">Self Study</option>
+              <option value="Revision">Exam Revision</option>
+              <option value="Lab">Lab / Practical</option>
+              <option value="Group Study">Group Study</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="slot-start-time" class="form-label">Start Time *</label>
+            <input type="time" id="slot-start-time" class="form-input" required>
+          </div>
+
+          <div class="form-group">
+            <label for="slot-end-time" class="form-label">End Time *</label>
+            <input type="time" id="slot-end-time" class="form-input" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="slot-location-input" class="form-label">Location / Room / Platform</label>
+          <input type="text" id="slot-location-input" class="form-input" placeholder="e.g. Hall B302 / Zoom link / Library">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-timetable-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-timetable-btn">Save Study Slot</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / EDIT NOTE -->
+  <div class="modal-backdrop" id="note-modal" role="dialog" aria-modal="true" aria-labelledby="note-modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="note-modal-title">New Study Note</h3>
+        <button class="modal-close-btn" id="close-note-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="note-form">
+        <input type="hidden" id="note-id">
+        <div class="form-group">
+          <label for="note-title-input" class="form-label">Note Title *</label>
+          <input type="text" id="note-title-input" class="form-input" placeholder="e.g. Key Thermodynamics Formulas" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="note-subject-input" class="form-label">Subject *</label>
+            <input type="text" id="note-subject-input" class="form-input" placeholder="e.g. Physics" required>
+          </div>
+
+          <div class="form-group">
+            <label for="note-color-select" class="form-label">Card Accent Color</label>
+            <select id="note-color-select" class="form-select">
+              <option value="sky">Ocean Blue</option>
+              <option value="emerald">Emerald Mint</option>
+              <option value="purple">Soft Violet</option>
+              <option value="amber">Warm Amber</option>
+              <option value="rose">Coral Rose</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="note-content-input" class="form-label">Note Content *</label>
+          <textarea id="note-content-input" class="form-textarea" rows="7" placeholder="Write your revision notes, formula derivations, key definitions, or lecture takeaways here..." required></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-note-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-note-btn">Save Note</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Celebration Confetti Container -->
+  <canvas id="confetti-canvas"></canvas>
+
+  <!-- Sound Audio Elements (Web Audio Synthesized in JS, but fallback here) -->
+  <script src="app.js"></script>
+</body>
+</html>
