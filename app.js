@@ -1795,6 +1795,16 @@ const AuthGate = {
     this.errorBox = document.getElementById("auth-error");
     this.signInBtn = document.getElementById("google-signin-btn");
 
+    if (!window.supabase) {
+      this.showError(
+        "The Supabase library couldn't be loaded from the CDN. Check your internet connection " +
+        "and any ad-blocker extension (uBlock Origin, Brave Shields…) that may be blocking " +
+        "<code>jsdelivr.net</code> or <code>supabase.co</code>, then reload the page."
+      );
+      if (this.signInBtn) this.signInBtn.disabled = true;
+      return;
+    }
+
     if (!IS_CONFIGURED) {
       this.showError(
         "Supabase isn't configured yet. Open <code>config.js</code>, paste your project URL + anon key, " +
@@ -1816,18 +1826,72 @@ const AuthGate = {
     this.loading?.classList.remove("hidden");
   },
 
-  hideLoading() { this.loading?.classList.add("hidden"); },
+  hideLoading() { this.loading?.classList.remove("hidden"); },
 
   showError(message) {
     if (!this.errorBox) return;
     this.errorBox.innerHTML = message;
     this.errorBox.classList.remove("hidden");
+    console.error("[StudyBuddy auth]", message.replace(/<[^>]+>/g, ""));
+  },
+
+  hideError() {
+    this.errorBox?.classList.add("hidden");
   },
 
   resetSignInButton() {
     if (this.signInBtn) this.signInBtn.disabled = false;
     const label = document.getElementById("google-signin-label");
     if (label) label.textContent = "Continue with Google";
+  },
+
+  /**
+   * Supabase/Google send failures back as URL parameters (e.g. ?error=redirect_url_not_allowed
+   * or #error=access_denied). Without this, the user would just silently land back on the
+   * login screen with no clue why. Parse and explain them.
+   */
+  consumeUrlAuthErrors() {
+    let params;
+    try {
+      params = new URLSearchParams(window.location.search);
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      hash.forEach((value, key) => { if (!params.has(key)) params.set(key, value); });
+    } catch (e) {
+      return false;
+    }
+
+    const error = params.get("error") || params.get("error_code");
+    const description = params.get("error_description") || "";
+    const hadCode = Boolean(params.get("code")); // PKCE callback — consumed by getSession()
+
+    if (!error && !hadCode) return false;
+
+    if (error) {
+      let friendly;
+      if (error === "redirect_url_not_allowed" || error.includes("redirect")) {
+        friendly = "Google signed you in, but Supabase refused to send you back to this site. " +
+          "Fix: in Supabase → Authentication → URL Configuration, add <code>" + window.location.origin +
+          "</code> to the Redirect URLs list.";
+      } else if (error === "access_denied") {
+        friendly = "Google sign-in was cancelled or denied. Please try again and choose an account.";
+      } else if (error.includes("verify") || error.includes("verification")) {
+        friendly = "Your Google account needs to be verified by Supabase first — check your email " +
+          "for a verification link, or in Supabase → Authentication → Providers → Google, disable " +
+          "\"Confirm email\" for testing.";
+      } else {
+        friendly = "Sign-in failed: <code>" + this.escapeText(error) + "</code>" +
+          (description ? " — " + this.escapeText(decodeURIComponent(description)) : "");
+      }
+      this.showError(friendly);
+    }
+
+    // Clean the URL so a reload doesn't replay the same error / stale OAuth code.
+    window.history.replaceState(null, "", window.location.pathname);
+    return true;
+  },
+
+  escapeText(str) {
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   },
 
   async signInWithGoogle() {
@@ -1843,22 +1907,39 @@ const AuthGate = {
       return;
     }
 
+    this.hideError();
     if (this.signInBtn) this.signInBtn.disabled = true;
     const label = document.getElementById("google-signin-label");
     if (label) label.textContent = "Redirecting to Google…";
 
-    const { error } = await supabaseClient.auth.signInWithProvider("google", {
-      options: { redirectTo: window.location.origin }
-    });
+    const urlBefore = window.location.href;
 
-    if (error) {
-      console.error("Google sign-in failed:", error);
-      this.showError(
-        "Sign-in failed: " + error.message +
-        " — double-check that the Google provider is enabled and your site URL is in " +
-        "Supabase's Authentication → URL Configuration allow list."
-      );
+    try {
+      const { error } = await supabaseClient.auth.signInWithProvider("google", {
+        options: { redirectTo: window.location.origin }
+      });
+
+      if (error) throw error;
+
+      // Safety net: if we're still on this page a few seconds later, the redirect
+      // silently failed — give the user a way out instead of a dead button.
+      setTimeout(() => {
+        if (window.location.href === urlBefore) {
+          this.resetSignInButton();
+          this.showError(
+            "The browser didn't redirect to Google. Check your internet connection and any " +
+            "ad-blocker/privacy extension blocking <code>supabase.co</code>, then try again."
+          );
+        }
+      }, 3500);
+    } catch (err) {
+      console.error("[StudyBuddy] Google sign-in failed:", err);
       this.resetSignInButton();
+      this.showError(
+        "Couldn't start Google sign-in: <code>" + this.escapeText(err?.message || err) + "</code>. " +
+        "This is usually caused by a network problem or an ad-blocker/privacy extension blocking " +
+        "<code>supabase.co</code> — check the browser console (F12) for details."
+      );
     }
   }
 };
@@ -1891,13 +1972,27 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (!supabaseClient) return; // Not configured — the login screen explains what to do.
 
-  const { data: { session } } = await supabaseClient.auth.getSession();
+  // Surface any OAuth error Google/Supabase bounced back in the URL.
+  const urlHadAuthParams = AuthGate.consumeUrlAuthErrors();
+
+  const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
 
   if (session) {
     await bootWithSession(session);
-  } else {
-    AuthGate.showScreen();
+    return;
   }
+
+  if (sessionError && !urlHadAuthParams) {
+    // The PKCE code exchange (return trip from Google) failed.
+    console.error("[StudyBuddy] Session error:", sessionError);
+    window.history.replaceState(null, "", window.location.pathname);
+    AuthGate.showError(
+      "Your sign-in couldn't be completed: <code>" +
+      AuthGate.escapeText(sessionError.message || sessionError) + "</code>. Please try again."
+    );
+  }
+
+  AuthGate.showScreen();
 
   // React to auth events (e.g. sign-out from another tab).
   supabaseClient.auth.onAuthStateChange((event, session) => {
