@@ -169,33 +169,45 @@ const MOTIVATIONAL_QUOTES = [
 ];
 
 // =============================================================================
-// 2. Storage Helpers
+// 2. Cloud Storage (Supabase) & Auth Client
 // =============================================================================
-class StorageManager {
-  static get(key, fallback) {
-    try {
-      const data = localStorage.getItem(`studybuddy_${key}`);
-      return data ? JSON.parse(data) : fallback;
-    } catch (e) {
-      console.warn("Storage read error:", e);
-      return fallback;
-    }
+const SUPABASE_CONFIG = window.STUDYBUDDY_CONFIG || {};
+const IS_CONFIGURED = Boolean(
+  window.supabase &&
+  SUPABASE_CONFIG.SUPABASE_URL &&
+  SUPABASE_CONFIG.SUPABASE_ANON_KEY &&
+  !SUPABASE_CONFIG.SUPABASE_URL.startsWith("YOUR_") &&
+  !SUPABASE_CONFIG.SUPABASE_ANON_KEY.startsWith("YOUR_")
+);
+
+const supabaseClient = IS_CONFIGURED
+  ? window.supabase.createClient(SUPABASE_CONFIG.SUPABASE_URL, SUPABASE_CONFIG.SUPABASE_ANON_KEY)
+  : null;
+
+/**
+ * RemoteStore - reads/writes the signed-in user's single workspace row in
+ * Supabase. Row Level Security (see supabase/schema.sql) guarantees that each
+ * user can only ever touch their own data.
+ */
+class RemoteStore {
+  static async load(userId) {
+    const { data, error } = await supabaseClient
+      .from("studybuddy_state")
+      .select("data")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.data || null;
   }
 
-  static set(key, value) {
-    try {
-      localStorage.setItem(`studybuddy_${key}`, JSON.stringify(value));
-    } catch (e) {
-      console.warn("Storage write error:", e);
-    }
-  }
-
-  static clearAll() {
-    localStorage.removeItem("studybuddy_tasks");
-    localStorage.removeItem("studybuddy_timetable");
-    localStorage.removeItem("studybuddy_notes");
-    localStorage.removeItem("studybuddy_focus_minutes");
-    localStorage.removeItem("studybuddy_pomodoro_sessions");
+  static async save(userId, state) {
+    const { error } = await supabaseClient
+      .from("studybuddy_state")
+      .upsert(
+        { user_id: userId, data: state, updated_at: new Date().toISOString() },
+        { onConflict: "user_id" }
+      );
+    if (error) throw error;
   }
 }
 
@@ -316,12 +328,16 @@ class ConfettiFX {
 // =============================================================================
 class StudyBuddyApp {
   constructor() {
-    // Load state from localStorage or defaults
-    this.tasks = StorageManager.get("tasks", DEFAULT_TASKS);
-    this.timetable = StorageManager.get("timetable", DEFAULT_TIMETABLE);
-    this.notes = StorageManager.get("notes", DEFAULT_NOTES);
-    this.focusMinutes = StorageManager.get("focus_minutes", 75);
-    this.pomodoroSessions = StorageManager.get("pomodoro_sessions", 3);
+    // Workspace data — hydrated from the signed-in user's cloud profile in
+    // startSession(). First-time sign-ins get the sample data seeded below.
+    this.user = null;
+    this.tasks = [];
+    this.timetable = [];
+    this.notes = [];
+    this.focusMinutes = 0;
+    this.pomodoroSessions = 0;
+    this._persistTimer = null;
+    this._initialized = false;
 
     this.currentTab = "dashboard";
     this.selectedDay = "Monday";
@@ -350,6 +366,9 @@ class StudyBuddyApp {
   }
 
   init() {
+    if (this._initialized) return;
+    this._initialized = true;
+
     this.setupDateDisplay();
     this.setupNavigation();
     this.setupModals();
@@ -361,6 +380,89 @@ class StudyBuddyApp {
     
     // Initial Render
     this.renderAll();
+  }
+
+  // ===========================================================================
+  // 4. Session & Cloud Sync
+  // ===========================================================================
+  /**
+   * Called after Google sign-in: loads this user's workspace from Supabase
+   * (seeding the sample data on very first sign-in), then boots the UI.
+   */
+  async startSession(session) {
+    this.user = session.user;
+    this.renderUserProfile();
+
+    let saved = null;
+    try {
+      saved = await RemoteStore.load(this.user.id);
+    } catch (e) {
+      console.error("Failed to load cloud workspace:", e);
+      this.showToast("Couldn't load your cloud workspace. Is the supabase/schema.sql table created?", "alert");
+    }
+
+    if (saved && typeof saved === "object") {
+      this.tasks = Array.isArray(saved.tasks) ? saved.tasks : JSON.parse(JSON.stringify(DEFAULT_TASKS));
+      this.timetable = Array.isArray(saved.timetable) ? saved.timetable : JSON.parse(JSON.stringify(DEFAULT_TIMETABLE));
+      this.notes = Array.isArray(saved.notes) ? saved.notes : JSON.parse(JSON.stringify(DEFAULT_NOTES));
+      this.focusMinutes = Number(saved.focusMinutes) || 0;
+      this.pomodoroSessions = Number(saved.pomodoroSessions) || 0;
+    } else {
+      // First sign-in on this account: seed the friendly sample workspace.
+      this.tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
+      this.timetable = JSON.parse(JSON.stringify(DEFAULT_TIMETABLE));
+      this.notes = JSON.parse(JSON.stringify(DEFAULT_NOTES));
+      this.focusMinutes = 75;
+      this.pomodoroSessions = 3;
+      this.persist();
+    }
+
+    this.init();
+  }
+
+  // Fill the sidebar/topbar with the signed-in Google profile.
+  renderUserProfile() {
+    if (!this.user) return;
+    const meta = this.user.user_metadata || {};
+    const fullName = meta.full_name || meta.name || this.user.email || "Student";
+    const firstName = fullName.split(" ")[0];
+    const avatarUrl = meta.avatar_url || meta.picture;
+
+    const nameEl = document.getElementById("display-user-name");
+    if (nameEl) nameEl.textContent = fullName;
+
+    const titleEl = document.getElementById("page-title");
+    if (titleEl) titleEl.textContent = `Welcome back, ${firstName}! 👋`;
+
+    const avatarWrap = document.getElementById("sidebar-avatar");
+    if (avatarWrap && avatarUrl) {
+      avatarWrap.innerHTML = `<img src="${this.escapeHTML(avatarUrl)}" alt="${this.escapeHTML(fullName)}" referrerpolicy="no-referrer">`;
+    }
+  }
+
+  // Debounced cloud sync — every mutation funnels through here.
+  schedulePersist() {
+    if (!this.user) return;
+    clearTimeout(this._persistTimer);
+    this._persistTimer = setTimeout(() => this.persist(), 400);
+  }
+
+  async persist() {
+    if (!this.user) return;
+    clearTimeout(this._persistTimer);
+    const state = {
+      tasks: this.tasks,
+      timetable: this.timetable,
+      notes: this.notes,
+      focusMinutes: this.focusMinutes,
+      pomodoroSessions: this.pomodoroSessions
+    };
+    try {
+      await RemoteStore.save(this.user.id, state);
+    } catch (e) {
+      console.error("Cloud save failed:", e);
+      this.showToast("Couldn't sync your latest changes to the cloud", "alert");
+    }
   }
 
   // Set Top Date String
@@ -429,19 +531,26 @@ class StudyBuddyApp {
     if (resetBtn) {
       resetBtn.addEventListener("click", () => {
         if (confirm("Reset StudyBuddy to initial sample study data? This will refresh your tasks, timetable, and notes.")) {
-          StorageManager.clearAll();
           this.tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
           this.timetable = JSON.parse(JSON.stringify(DEFAULT_TIMETABLE));
           this.notes = JSON.parse(JSON.stringify(DEFAULT_NOTES));
           this.focusMinutes = 75;
           this.pomodoroSessions = 3;
-          this.saveTasks();
-          this.saveTimetable();
-          this.saveNotes();
-          StorageManager.set("focus_minutes", this.focusMinutes);
-          StorageManager.set("pomodoro_sessions", this.pomodoroSessions);
+          this.persist();
           this.renderAll();
           this.showToast("Demo data reset successfully!", "info");
+        }
+      });
+    }
+
+    // Sign Out
+    const signOutBtn = document.getElementById("sign-out-btn");
+    if (signOutBtn) {
+      signOutBtn.addEventListener("click", async () => {
+        if (!supabaseClient) return;
+        if (confirm("Sign out of StudyBuddy? Your data stays safe in your account.")) {
+          await supabaseClient.auth.signOut();
+          window.location.reload();
         }
       });
     }
@@ -727,7 +836,7 @@ class StudyBuddyApp {
   }
 
   saveTasks() {
-    StorageManager.set("tasks", this.tasks);
+    this.schedulePersist();
   }
 
   // ===========================================================================
@@ -862,7 +971,7 @@ class StudyBuddyApp {
   }
 
   saveTimetable() {
-    StorageManager.set("timetable", this.timetable);
+    this.schedulePersist();
   }
 
   // ===========================================================================
@@ -965,7 +1074,7 @@ class StudyBuddyApp {
   }
 
   saveNotes() {
-    StorageManager.set("notes", this.notes);
+    this.schedulePersist();
   }
 
   // ===========================================================================
@@ -1085,8 +1194,7 @@ class StudyBuddyApp {
     if (this.timerMode === "pomodoro") {
       this.pomodoroSessions++;
       this.focusMinutes += 25;
-      StorageManager.set("pomodoro_sessions", this.pomodoroSessions);
-      StorageManager.set("focus_minutes", this.focusMinutes);
+      this.schedulePersist();
       this.showToast("Focus session finished! Time for a well-earned break! ☕");
       this.setTimerMode("shortBreak");
     } else {
@@ -1672,7 +1780,131 @@ class StudyBuddyApp {
   }
 }
 
-// Instantiate application on DOM ready
-document.addEventListener("DOMContentLoaded", () => {
-  window.studyBuddy = new StudyBuddyApp();
+// =============================================================================
+// 12. Bootstrap: Google Sign-In Gate & App Startup
+// =============================================================================
+const AuthGate = {
+  screen: null,
+  loading: null,
+  errorBox: null,
+  signInBtn: null,
+
+  init() {
+    this.screen = document.getElementById("auth-screen");
+    this.loading = document.getElementById("auth-loading");
+    this.errorBox = document.getElementById("auth-error");
+    this.signInBtn = document.getElementById("google-signin-btn");
+
+    if (!IS_CONFIGURED) {
+      this.showError(
+        "Supabase isn't configured yet. Open <code>config.js</code>, paste your project URL + anon key, " +
+        "run <code>supabase/schema.sql</code> in the SQL editor, and enable the Google provider."
+      );
+      if (this.signInBtn) this.signInBtn.disabled = true;
+      return;
+    }
+
+    this.signInBtn?.addEventListener("click", () => this.signInWithGoogle());
+  },
+
+  showScreen() { this.screen?.classList.remove("hidden"); },
+  hideScreen() { this.screen?.classList.add("hidden"); },
+
+  showLoading(text) {
+    const textEl = document.getElementById("auth-loading-text");
+    if (text && textEl) textEl.textContent = text;
+    this.loading?.classList.remove("hidden");
+  },
+
+  hideLoading() { this.loading?.classList.add("hidden"); },
+
+  showError(message) {
+    if (!this.errorBox) return;
+    this.errorBox.innerHTML = message;
+    this.errorBox.classList.remove("hidden");
+  },
+
+  resetSignInButton() {
+    if (this.signInBtn) this.signInBtn.disabled = false;
+    const label = document.getElementById("google-signin-label");
+    if (label) label.textContent = "Continue with Google";
+  },
+
+  async signInWithGoogle() {
+    if (!supabaseClient) return;
+
+    // Google's OAuth flow requires a real http(s) origin to redirect back to.
+    if (location.protocol === "file:") {
+      this.showError(
+        "StudyBuddy is open as a local file, so Google can't redirect back to it. " +
+        "Run a local server instead — e.g. <code>python -m http.server 8000</code> — " +
+        "then open <code>http://localhost:8000</code>."
+      );
+      return;
+    }
+
+    if (this.signInBtn) this.signInBtn.disabled = true;
+    const label = document.getElementById("google-signin-label");
+    if (label) label.textContent = "Redirecting to Google…";
+
+    const { error } = await supabaseClient.auth.signInWithProvider("google", {
+      options: { redirectTo: window.location.origin }
+    });
+
+    if (error) {
+      console.error("Google sign-in failed:", error);
+      this.showError(
+        "Sign-in failed: " + error.message +
+        " — double-check that the Google provider is enabled and your site URL is in " +
+        "Supabase's Authentication → URL Configuration allow list."
+      );
+      this.resetSignInButton();
+    }
+  }
+};
+
+async function bootWithSession(session) {
+  if (window.studyBuddy) return; // already booted in this page load
+
+  AuthGate.hideScreen();
+  AuthGate.showLoading("Preparing your workspace…");
+
+  try {
+    window.studyBuddy = new StudyBuddyApp();
+    await window.studyBuddy.startSession(session);
+    document.getElementById("app-layout")?.classList.remove("hidden");
+  } catch (e) {
+    console.error("Failed to start StudyBuddy:", e);
+    window.studyBuddy = null;
+    AuthGate.hideLoading();
+    AuthGate.showScreen();
+    AuthGate.showError("Something went wrong while loading your workspace. Please sign in again.");
+    await supabaseClient?.auth.signOut();
+    return;
+  }
+
+  AuthGate.hideLoading();
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  AuthGate.init();
+
+  if (!supabaseClient) return; // Not configured — the login screen explains what to do.
+
+  const { data: { session } } = await supabaseClient.auth.getSession();
+
+  if (session) {
+    await bootWithSession(session);
+  } else {
+    AuthGate.showScreen();
+  }
+
+  // React to auth events (e.g. sign-out from another tab).
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_IN" && session) {
+      bootWithSession(session);
+    } else if (event === "SIGNED_OUT" && window.studyBuddy) {
+      window.location.reload();
+    }
+  });
 });

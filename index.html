@@ -18,7 +18,57 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app-layout">
+  <!-- AUTH SCREEN: shown until the user signs in with Google -->
+  <div class="auth-screen" id="auth-screen">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="logo-icon logo-icon-lg">
+          <i class="fa-solid fa-graduation-cap"></i>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">StudyBuddy</span>
+          <span class="brand-subtitle">Student Workspace</span>
+        </div>
+      </div>
+
+      <h1 class="auth-title">Your study planner, <span class="text-primary">just for you</span></h1>
+      <p class="auth-subtitle">
+        Sign in to get your own personal workspace. Your assignments, timetable,
+        notes and focus stats sync securely to your account.
+      </p>
+
+      <ul class="auth-features">
+        <li><i class="fa-solid fa-circle-check text-emerald"></i> Personal assignments &amp; to-do lists</li>
+        <li><i class="fa-solid fa-circle-check text-emerald"></i> Daily study timetable &amp; reminders</li>
+        <li><i class="fa-solid fa-circle-check text-emerald"></i> Notes, Pomodoro stats &amp; streaks</li>
+      </ul>
+
+      <button id="google-signin-btn" class="btn google-btn btn-lg">
+        <svg class="google-icon" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        <span id="google-signin-label">Continue with Google</span>
+      </button>
+
+      <p class="auth-error hidden" id="auth-error"></p>
+
+      <p class="auth-footnote">
+        <i class="fa-solid fa-lock"></i> Only you can access your data — protected by row-level security.
+      </p>
+    </div>
+  </div>
+
+  <!-- AUTH LOADING: shown while the session / workspace is being prepared -->
+  <div class="auth-loading hidden" id="auth-loading">
+    <div class="auth-loading-spinner"></div>
+    <p id="auth-loading-text">Preparing your workspace…</p>
+  </div>
+
+  <!-- MAIN APP (hidden until signed in) -->
+  <div class="app-layout hidden" id="app-layout">
     <!-- Mobile Header -->
     <header class="mobile-header">
       <div class="brand">
@@ -53,11 +103,11 @@
 
       <!-- Quick User Card -->
       <div class="user-profile-badge">
-        <div class="avatar">
+        <div class="avatar" id="sidebar-avatar">
           <i class="fa-solid fa-user-graduate"></i>
         </div>
         <div class="user-info">
-          <span class="user-name" id="display-user-name">Alex Rivera</span>
+          <span class="user-name" id="display-user-name">Student</span>
           <span class="user-level"><i class="fa-solid fa-fire text-amber"></i> 5 Day Streak</span>
         </div>
       </div>
@@ -104,10 +154,13 @@
         </div>
       </div>
 
-      <!-- Footer Help & Reset -->
+      <!-- Footer Help, Reset & Sign Out -->
       <div class="sidebar-footer">
         <button id="reset-demo-data-btn" class="btn-text">
           <i class="fa-solid fa-clock-rotate-left"></i> Reset Demo Data
+        </button>
+        <button id="sign-out-btn" class="btn-text btn-sign-out">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out
         </button>
       </div>
     </aside>
@@ -768,7 +821,13 @@
   <!-- Celebration Confetti Container -->
   <canvas id="confetti-canvas"></canvas>
 
-  <!-- Sound Audio Elements (Web Audio Synthesized in JS, but fallback here) -->
+  <!-- Supabase (Auth + Cloud Database) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Project Credentials (edit this file with your Supabase URL + anon key) -->
+  <script src="config.js"></script>
+
+  <!-- Main Application -->
   <script src="app.js"></script>
 </body>
 </html>

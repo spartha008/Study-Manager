@@ -2042,3 +2042,204 @@ form {
     font-size: 1.25rem;
   }
 }
+
+/* ==========================================================================
+   Authentication (Google Sign-In via Supabase)
+   ========================================================================== */
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(60rem 60rem at 12% -10%, rgba(56, 189, 248, 0.22), transparent 60%),
+    radial-gradient(50rem 50rem at 110% 110%, rgba(168, 85, 247, 0.14), transparent 55%),
+    var(--bg-app);
+  overflow-y: auto;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: 2.5rem 2.25rem;
+  text-align: center;
+  animation: authCardIn 0.45s var(--ease-spring);
+}
+
+@keyframes authCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-bottom: 1.75rem;
+  text-align: left;
+}
+
+.logo-icon-lg {
+  width: 50px;
+  height: 50px;
+  font-size: 1.45rem;
+}
+
+.auth-title {
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.6rem;
+}
+
+.auth-subtitle {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.auth-features {
+  list-style: none;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  background: var(--primary-50);
+  border: 1px solid var(--primary-100);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1.75rem;
+  font-size: 0.86rem;
+  color: var(--slate-700);
+  font-weight: 600;
+}
+
+.auth-features i {
+  margin-right: 0.55rem;
+  width: 16px;
+  text-align: center;
+}
+
+.google-btn {
+  width: 100%;
+  background-color: #ffffff;
+  color: var(--slate-700);
+  border: 1px solid var(--slate-200);
+  box-shadow: var(--shadow-sm);
+}
+
+.google-btn:hover {
+  background-color: var(--slate-50);
+  border-color: var(--slate-300);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.google-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.google-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.auth-error {
+  margin-top: 1rem;
+  background: var(--rose-50);
+  border: 1px solid var(--rose-100);
+  color: var(--rose-600);
+  font-size: 0.82rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.85rem;
+  line-height: 1.45;
+}
+
+.auth-error code {
+  background: rgba(225, 29, 72, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+}
+
+.auth-footnote {
+  margin-top: 1.35rem;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.auth-footnote i {
+  margin-right: 0.35rem;
+}
+
+/* Auth Loading Overlay */
+.auth-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: var(--bg-app);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.auth-loading-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 4px solid var(--primary-100);
+  border-top-color: var(--primary-600);
+  animation: authSpin 0.8s linear infinite;
+}
+
+@keyframes authSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Sidebar avatar (Google profile picture) */
+.user-profile-badge .avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-pill);
+}
+
+/* Sidebar footer sign out */
+.sidebar-footer {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.btn-sign-out {
+  color: var(--rose-500);
+  font-weight: 600;
+}
+
+.btn-sign-out:hover {
+  color: var(--rose-600);
+}

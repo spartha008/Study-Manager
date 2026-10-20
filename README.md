@@ -42,9 +42,11 @@ A modern, responsive, and beginner-friendly web application built for students t
    - Academic mastery breakdown by subject.
    - 7-day study habit streak tracker.
 
-6. **💾 Local Storage Persistence**
-   - All tasks, timetable sessions, notes, and study metrics persist automatically in your browser's `localStorage`.
-   - Comes pre-populated with friendly sample study data on first launch.
+6. **☁️ Cloud Persistence (Supabase)**
+   - Sign in with Google — every account gets its own private workspace.
+   - All tasks, timetable sessions, notes, and study metrics sync to your Supabase project and follow you across devices.
+   - Secured with Row Level Security: no user can ever read or edit another user's data.
+   - Comes pre-populated with friendly sample study data on first sign-in.
    - "Reset Demo Data" button in the sidebar footer to reset back to initial sample state anytime.
 
 7. **📱 Fully Responsive & Clean Design**
@@ -56,11 +58,30 @@ A modern, responsive, and beginner-friendly web application built for students t
 
 ## 🚀 How to Run Locally
 
-You can open [`index.html`](file:///c:/AntiiiGravity/index.html) directly in any modern browser:
+### 1. One-time setup (Supabase + Google login)
 
-- Double-click [`index.html`](file:///c:/AntiiiGravity/index.html) in File Explorer, or
-- Run a simple local HTTP server:
-  ```bash
-  python -m http.server 8000
-  ```
-  Then visit `http://localhost:8000` in your web browser.
+StudyBuddy uses [Supabase](https://supabase.com) for Google sign-in and cloud storage. The free tier is plenty.
+
+1. **Create a Supabase project** at [database.new](https://database.new) (free tier).
+2. **Create the database table** — open *SQL Editor → New query*, paste the contents of [`supabase/schema.sql`](supabase/schema.sql), and run it.
+3. **Enable the Google provider** — *Authentication → Providers → Google*.
+   Follow the link Supabase shows you to create an OAuth Client ID in the
+   [Google Cloud Console](https://console.cloud.google.com) (APIs & Services → Credentials →
+   Create credentials → OAuth client ID → *Web application*).
+   - Authorized JavaScript origins: your site URL, e.g. `http://localhost:8000`
+   - Authorized redirect URI: the one Supabase displays, e.g. `https://<project-ref>.supabase.co/auth/v1/callback`
+4. **Allow your site URL** — *Authentication → URL Configuration*: add `http://localhost:8000`
+   (and later your production URL) to the redirect allow list, and set the Site URL.
+5. **Add your credentials** — open [`config.js`](config.js) and paste your
+   *Project URL* and *anon public* key (found under *Project Settings → API*).
+
+### 2. Run the app
+
+Serve the folder over HTTP (Google sign-in does not work from `file://`):
+
+```bash
+python -m http.server 8000
+```
+
+Then visit `http://localhost:8000`, click **Continue with Google**, and you'll get
+your own personal StudyBuddy workspace.
