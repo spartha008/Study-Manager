@@ -124,6 +124,11 @@
           <span>Assignments</span>
           <span class="badge" id="pending-badge">0</span>
         </button>
+        <button class="nav-item" data-tab="calendar">
+          <i class="fa-solid fa-calendar-check"></i>
+          <span>Calendar</span>
+          <span class="badge" id="calendar-badge">0</span>
+        </button>
         <button class="nav-item" data-tab="timetable">
           <i class="fa-solid fa-calendar-days"></i>
           <span>Study Timetable</span>
@@ -285,6 +290,30 @@
           </div>
         </div>
 
+        <!-- Upcoming Reminders & Countdowns -->
+        <div class="card dashboard-card reminders-card" id="dashboard-reminders-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <i class="fa-solid fa-bell text-rose"></i>
+              <h2>Upcoming Reminders</h2>
+            </div>
+            <button class="btn btn-sm btn-outline" data-tab="calendar">Open Calendar</button>
+          </div>
+          <div class="card-body">
+            <div class="reminder-toolbar">
+              <span class="text-sm text-muted">
+                <i class="fa-solid fa-bell"></i> Countdowns update automatically.
+              </span>
+              <button class="btn btn-sm btn-ghost" id="enable-notifications-btn">
+                <i class="fa-regular fa-bell"></i> Enable desktop reminders
+              </button>
+            </div>
+            <div class="reminder-list" id="dashboard-reminders-list">
+              <!-- Dynamically populated upcoming events with live countdowns -->
+            </div>
+          </div>
+        </div>
+
         <!-- Recent Notes & Goal Quick Look -->
         <div class="dashboard-grid dashboard-grid-secondary">
           <!-- Recent Study Notes -->
@@ -402,6 +431,77 @@
             <button class="btn btn-primary mt-3" id="empty-state-add-task-btn">
               <i class="fa-solid fa-plus"></i> Add Assignment
             </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: CALENDAR & EVENTS -->
+      <section class="tab-pane" id="tab-calendar">
+        <div class="section-header">
+          <div>
+            <h2>Calendar &amp; Events</h2>
+            <p class="subtitle">Plan study sessions, classes and exams, and never miss an important date.</p>
+          </div>
+          <button id="add-event-btn" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> New Event
+          </button>
+        </div>
+
+        <div class="calendar-layout">
+          <!-- Month Grid -->
+          <div class="card calendar-card">
+            <div class="calendar-header">
+              <div class="calendar-nav-group">
+                <button class="icon-btn" id="cal-prev-btn" aria-label="Previous month">
+                  <i class="fa-solid fa-chevron-left"></i>
+                </button>
+                <h3 id="cal-month-title" class="calendar-month-title">October 2026</h3>
+                <button class="icon-btn" id="cal-next-btn" aria-label="Next month">
+                  <i class="fa-solid fa-chevron-right"></i>
+                </button>
+              </div>
+              <button class="btn btn-sm btn-outline" id="cal-today-btn">
+                <i class="fa-solid fa-calendar-day"></i> Today
+              </button>
+            </div>
+
+            <div class="calendar-weekdays">
+              <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+            </div>
+            <div class="calendar-grid" id="calendar-grid">
+              <!-- Dynamically generated day cells -->
+            </div>
+
+            <div class="calendar-legend">
+              <span class="legend-item"><i class="legend-dot dot-test"></i> Test / Exam</span>
+              <span class="legend-item"><i class="legend-dot dot-class"></i> Class</span>
+              <span class="legend-item"><i class="legend-dot dot-study"></i> Study</span>
+              <span class="legend-item"><i class="legend-dot dot-event"></i> Other</span>
+            </div>
+          </div>
+
+          <!-- Selected Day Agenda -->
+          <div class="card calendar-agenda-card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <i class="fa-solid fa-list-ul text-primary"></i>
+                <h2 id="agenda-date-title">Today's Agenda</h2>
+              </div>
+              <span class="badge badge-primary" id="agenda-count">0 events</span>
+            </div>
+            <div class="card-body">
+              <div class="agenda-list" id="agenda-list">
+                <!-- Dynamically populated events for the selected day -->
+              </div>
+              <div class="empty-state hidden" id="agenda-empty-state">
+                <div class="empty-icon"><i class="fa-regular fa-calendar"></i></div>
+                <h3>Nothing planned</h3>
+                <p>No events for this day yet.</p>
+                <button class="btn btn-primary mt-3" id="empty-state-add-event-btn">
+                  <i class="fa-solid fa-plus"></i> Add Event
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -811,6 +911,89 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" id="cancel-note-btn">Cancel</button>
           <button type="submit" class="btn btn-primary" id="save-note-btn">Save Note</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / EDIT CALENDAR EVENT -->
+  <div class="modal-backdrop" id="event-modal" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="event-modal-title">New Event</h3>
+        <button class="modal-close-btn" id="close-event-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="event-form">
+        <input type="hidden" id="event-id">
+
+        <div class="form-group">
+          <label for="event-title-input" class="form-label">Event Title *</label>
+          <input type="text" id="event-title-input" class="form-input" placeholder="e.g. Calculus Midterm Exam" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="event-type-select" class="form-label">Event Type</label>
+            <select id="event-type-select" class="form-select">
+              <option value="test">Test / Exam</option>
+              <option value="class">Class / Lecture</option>
+              <option value="study">Study Session</option>
+              <option value="event" selected>Other Event</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="event-subject-input" class="form-label">Subject</label>
+            <input type="text" id="event-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Mathematics">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="event-date-input" class="form-label">Date *</label>
+          <input type="date" id="event-date-input" class="form-input" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="event-start-time" class="form-label">Start Time *</label>
+            <input type="time" id="event-start-time" class="form-input" required>
+          </div>
+
+          <div class="form-group">
+            <label for="event-end-time" class="form-label">End Time *</label>
+            <input type="time" id="event-end-time" class="form-input" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="event-reminder-select" class="form-label">Reminder</label>
+            <select id="event-reminder-select" class="form-select">
+              <option value="0">No reminder</option>
+              <option value="10">10 minutes before</option>
+              <option value="30">30 minutes before</option>
+              <option value="60">1 hour before</option>
+              <option value="120">2 hours before</option>
+              <option value="1440">1 day before</option>
+              <option value="2880">2 days before</option>
+              <option value="10080">1 week before</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="event-location-input" class="form-label">Location / Room / Link</label>
+            <input type="text" id="event-location-input" class="form-input" placeholder="e.g. Hall B302 / Zoom link">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="event-notes-input" class="form-label">Notes (Optional)</label>
+          <textarea id="event-notes-input" class="form-textarea" rows="3" placeholder="Syllabus covered, what to bring, revision topics..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-event-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-event-btn">Save Event</button>
         </div>
       </form>
     </div>

@@ -21,7 +21,16 @@ A modern, responsive, and beginner-friendly web application built for students t
    - Celebratory confetti animation and audio chimes on task completion.
    - Bulk action to clear completed tasks.
 
-3. **📅 Daily Study Timetable**
+3. **📅 Calendar & Events with Reminders**
+   - Month-view calendar with colour-coded events and a per-day agenda.
+   - Plan anything: **Tests/Exams**, Classes, Study Sessions, or other events.
+   - Each event records a date, start time and end time, plus subject, location and notes.
+   - Optional reminders (10m, 30m, 1h, 2h, 1 day, 2 days, 1 week before).
+   - **Live countdowns on the dashboard** ("Starts in 2h 15m") that update automatically.
+   - Optional desktop notifications when an event is about to begin.
+   - Click any day in the calendar to see and manage that day's agenda.
+
+4. **📆 Daily Study Timetable**
    - Weekday navigation (Monday through Sunday).
    - Time slots with automatic duration calculations (e.g., `1h 30m`).
    - Categorization by session type: *Lecture*, *Self Study*, *Exam Revision*, *Lab*, or *Group Study*.
@@ -45,7 +54,7 @@ A modern, responsive, and beginner-friendly web application built for students t
 6. **☁️ Cloud Persistence (Supabase)**
    - Sign in with Google — every account gets its own private workspace.
    - New accounts start with a completely empty workspace — no sample content.
-   - All tasks, timetable sessions, notes, and study metrics sync to your Supabase project and follow you across devices.
+   - All tasks, timetable sessions, notes, events, and study metrics sync to your Supabase project and follow you across devices.
    - Secured with Row Level Security: no user can ever read or edit another user's data.
    - "Clear All Data" button in the sidebar footer to wipe your workspace anytime.
 

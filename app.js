@@ -361,13 +361,22 @@ class StudyBuddyApp {
     this.tasks = [];
     this.timetable = [];
     this.notes = [];
+    this.events = [];
     this.focusMinutes = 0;
     this.pomodoroSessions = 0;
     this._persistTimer = null;
+    this._reminderTick = null;
+    this._lastReminderKey = "";
     this._initialized = false;
 
     this.currentTab = "dashboard";
     this.selectedDay = "Monday";
+
+    // Calendar state
+    const now = new Date();
+    this.calendarYear = now.getFullYear();
+    this.calendarMonth = now.getMonth(); // 0-indexed
+    this.selectedDate = this.toDateKey(now);
 
     // Pomodoro Timer State
     this.timerMode = "pomodoro"; // pomodoro (25), shortBreak (5), longBreak (15)
@@ -402,8 +411,10 @@ class StudyBuddyApp {
     this.setupTaskEvents();
     this.setupTimetableEvents();
     this.setupNoteEvents();
+    this.setupCalendarEvents();
     this.setupPomodoroEvents();
     this.setupQuotes();
+    this.startReminderTicker();
 
     // Initial Render
     this.renderAll();
@@ -439,6 +450,7 @@ class StudyBuddyApp {
       this.tasks = Array.isArray(saved.tasks) ? saved.tasks : [];
       this.timetable = Array.isArray(saved.timetable) ? saved.timetable : [];
       this.notes = Array.isArray(saved.notes) ? saved.notes : [];
+      this.events = Array.isArray(saved.events) ? saved.events : [];
       this.focusMinutes = Number(saved.focusMinutes) || 0;
       this.pomodoroSessions = Number(saved.pomodoroSessions) || 0;
 
@@ -451,11 +463,11 @@ class StudyBuddyApp {
       this.tasks = [];
       this.timetable = [];
       this.notes = [];
+      this.events = [];
       this.focusMinutes = 0;
       this.pomodoroSessions = 0;
       this.persist();
     }
-
     AuthGate.showLoading("Starting StudyBuddy…");
     this.init();
   }
@@ -516,6 +528,7 @@ class StudyBuddyApp {
       tasks: this.tasks,
       timetable: this.timetable,
       notes: this.notes,
+      events: this.events,
       focusMinutes: this.focusMinutes,
       pomodoroSessions: this.pomodoroSessions
     };
@@ -596,6 +609,7 @@ class StudyBuddyApp {
           this.tasks = [];
           this.timetable = [];
           this.notes = [];
+          this.events = [];
           this.focusMinutes = 0;
           this.pomodoroSessions = 0;
           this.persist();
@@ -718,8 +732,15 @@ class StudyBuddyApp {
     document.getElementById("close-note-modal-btn")?.addEventListener("click", () => this.closeModal(noteModal));
     document.getElementById("cancel-note-btn")?.addEventListener("click", () => this.closeModal(noteModal));
 
+    // Event Modal
+    const eventModal = document.getElementById("event-modal");
+    document.getElementById("add-event-btn")?.addEventListener("click", () => this.openEventModal());
+    document.getElementById("empty-state-add-event-btn")?.addEventListener("click", () => this.openEventModal());
+    document.getElementById("close-event-modal-btn")?.addEventListener("click", () => this.closeModal(eventModal));
+    document.getElementById("cancel-event-btn")?.addEventListener("click", () => this.closeModal(eventModal));
+
     // Close on backdrop click
-    [taskModal, timetableModal, noteModal].forEach(modal => {
+    [taskModal, timetableModal, noteModal, eventModal].forEach(modal => {
       modal?.addEventListener("click", (e) => {
         if (e.target === modal) this.closeModal(modal);
       });
@@ -1290,15 +1311,303 @@ class StudyBuddyApp {
   }
 
   // ===========================================================================
+  // 9b. Calendar & Events Management
+  // ===========================================================================
+
+  // Local-time date key (YYYY-MM-DD) — avoids the UTC off-by-one of toISOString().
+  toDateKey(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+    const d = String(dateObj.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  // Start/end Date objects for an event.
+  eventStart(event) {
+    return new Date(`${event.date}T${event.startTime || "00:00"}:00`);
+  }
+
+  eventEnd(event) {
+    return new Date(`${event.date}T${event.endTime || event.startTime || "23:59"}:00`);
+  }
+
+  formatClock(dateObj) {
+    return dateObj.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+
+  formatLongDate(dateObj) {
+    return dateObj.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  }
+
+  // "Ends in 2d 4h", "Starts in 45m", "Happening now" etc.
+  formatCountdown(event) {
+    const now = Date.now();
+    const start = this.eventStart(event).getTime();
+    const end = this.eventEnd(event).getTime();
+
+    if (now >= start && now <= end) {
+      const minsLeft = Math.ceil((end - now) / 60000);
+      return { text: minsLeft <= 1 ? "Happening now" : `Happening now · ends in ${this.formatDurationShort(minsLeft)}`, state: "now", minutes: 0 };
+    }
+
+    const minutes = Math.ceil((start - now) / 60000);
+    if (minutes <= 0) {
+      return { text: "Already finished", state: "past", minutes: -1 };
+    }
+
+    let state = "upcoming";
+    if (minutes <= 60) state = "urgent";
+
+    let text;
+    if (minutes < 60) {
+      text = `Starts in ${minutes} min${minutes === 1 ? "" : "s"}`;
+    } else if (minutes < 24 * 60) {
+      text = `Starts in ${this.formatDurationShort(minutes)}`;
+    } else {
+      const days = Math.floor(minutes / (24 * 60));
+      text = `In ${days} day${days === 1 ? "" : "s"} · ${this.formatDurationShort(minutes % (24 * 60))}`;
+    }
+
+    return { text, state, minutes };
+  }
+
+  formatDurationShort(totalMinutes) {
+    if (totalMinutes <= 0) return "0m";
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
+  }
+
+  // Events happening now, then upcoming ones, soonest first.
+  getUpcomingEvents(limit = 6) {
+    const now = Date.now();
+    return this.events
+      .filter(ev => this.eventEnd(ev).getTime() >= now)
+      .sort((a, b) => this.eventStart(a) - this.eventStart(b))
+      .slice(0, limit);
+  }
+
+  eventTypeInfo(type) {
+    switch (type) {
+      case "test": return { icon: "fa-solid fa-file-pen", label: "Test / Exam" };
+      case "class": return { icon: "fa-solid fa-chalkboard-user", label: "Class" };
+      case "study": return { icon: "fa-solid fa-book-open-reader", label: "Study" };
+      default: return { icon: "fa-solid fa-star", label: "Event" };
+    }
+  }
+
+  setupCalendarEvents() {
+    document.getElementById("event-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      this.saveEventFromForm();
+    });
+
+    document.getElementById("cal-prev-btn")?.addEventListener("click", () => {
+      this.calendarMonth--;
+      if (this.calendarMonth < 0) { this.calendarMonth = 11; this.calendarYear--; }
+      this.renderCalendar();
+    });
+
+    document.getElementById("cal-next-btn")?.addEventListener("click", () => {
+      this.calendarMonth++;
+      if (this.calendarMonth > 11) { this.calendarMonth = 0; this.calendarYear++; }
+      this.renderCalendar();
+    });
+
+    document.getElementById("cal-today-btn")?.addEventListener("click", () => {
+      const now = new Date();
+      this.calendarYear = now.getFullYear();
+      this.calendarMonth = now.getMonth();
+      this.selectedDate = this.toDateKey(now);
+      this.renderCalendar();
+      this.renderAgenda();
+    });
+
+    // Requests notification permission on user gesture (required by browsers).
+    document.getElementById("enable-notifications-btn")?.addEventListener("click", () => this.enableNotifications());
+  }
+
+  openEventModal(event = null) {
+    const modal = document.getElementById("event-modal");
+    const form = document.getElementById("event-form");
+    const titleEl = document.getElementById("event-modal-title");
+
+    form.reset();
+
+    if (event) {
+      titleEl.textContent = "Edit Event";
+      document.getElementById("event-id").value = event.id;
+      document.getElementById("event-title-input").value = event.title;
+      document.getElementById("event-type-select").value = event.type || "event";
+      document.getElementById("event-subject-input").value = event.subject || "";
+      document.getElementById("event-date-input").value = event.date;
+      document.getElementById("event-start-time").value = event.startTime || "09:00";
+      document.getElementById("event-end-time").value = event.endTime || "10:00";
+      document.getElementById("event-reminder-select").value = String(event.reminderMinutes ?? 0);
+      document.getElementById("event-location-input").value = event.location || "";
+      document.getElementById("event-notes-input").value = event.notes || "";
+    } else {
+      titleEl.textContent = "New Event";
+      document.getElementById("event-id").value = "";
+      document.getElementById("event-date-input").value = this.selectedDate || this.toDateKey(new Date());
+      document.getElementById("event-start-time").value = "09:00";
+      document.getElementById("event-end-time").value = "10:00";
+    }
+
+    this.openModal(modal);
+  }
+
+  saveEventFromForm() {
+    const id = document.getElementById("event-id").value;
+    const title = document.getElementById("event-title-input").value.trim();
+    const type = document.getElementById("event-type-select").value;
+    const subject = document.getElementById("event-subject-input").value.trim();
+    const date = document.getElementById("event-date-input").value;
+    const startTime = document.getElementById("event-start-time").value;
+    const endTime = document.getElementById("event-end-time").value;
+    const reminderMinutes = parseInt(document.getElementById("event-reminder-select").value, 10) || 0;
+    const location = document.getElementById("event-location-input").value.trim();
+    const notes = document.getElementById("event-notes-input").value.trim();
+
+    if (!title || !date || !startTime || !endTime) {
+      this.showToast("Please fill in the title, date and times", "alert");
+      return;
+    }
+
+    if (startTime >= endTime) {
+      this.showToast("End time must be after the start time", "alert");
+      return;
+    }
+
+    if (id) {
+      const index = this.events.findIndex(e => e.id === id);
+      if (index !== -1) {
+        this.events[index] = {
+          ...this.events[index],
+          title, type, subject, date, startTime, endTime,
+          reminderMinutes, location, notes
+        };
+        this.showToast("Event updated!");
+      }
+    } else {
+      this.events.push({
+        id: "event-" + Date.now(),
+        title, type, subject, date, startTime, endTime,
+        reminderMinutes, location, notes,
+        createdAt: new Date().toISOString()
+      });
+      this.showToast("Event added to your calendar!");
+    }
+
+    // Jump the calendar to the saved event so it's immediately visible.
+    const [y, m] = date.split("-").map(Number);
+    this.calendarYear = y;
+    this.calendarMonth = m - 1;
+    this.selectedDate = date;
+
+    this.saveEvents();
+    this.closeModal(document.getElementById("event-modal"));
+    this.renderAll();
+  }
+
+  deleteEvent(id) {
+    const event = this.events.find(e => e.id === id);
+    if (!event) return;
+
+    if (confirm(`Delete "${event.title}" from your calendar?`)) {
+      this.events = this.events.filter(e => e.id !== id);
+      this.saveEvents();
+      this.renderAll();
+      this.showToast("Event deleted", "info");
+    }
+  }
+
+  saveEvents() {
+    this.schedulePersist();
+  }
+
+  // ===========================================================================
+  // 9c. Reminders & Live Countdowns
+  // ===========================================================================
+  startReminderTicker() {
+    if (this._reminderTick) clearInterval(this._reminderTick);
+    this._lastReminderKey = "";
+    // Re-render every 30s so countdowns stay live.
+    this._reminderTick = setInterval(() => {
+      this.renderDashboardReminders();
+      if (this.currentTab === "calendar") this.renderAgenda();
+    }, 30000);
+  }
+
+  showNotification(title, body) {
+    try {
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      new Notification(title, { body, icon: "favicon.ico" });
+    } catch (e) {
+      /* Notification API unavailable — the in-app toast still shows. */
+    }
+  }
+
+  async enableNotifications() {
+    if (!("Notification" in window)) {
+      this.showToast("This browser doesn't support desktop notifications", "info");
+      return;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === "granted") {
+        this.showToast("Reminders enabled — we'll notify you before each event!");
+        this.showNotification("StudyBuddy reminders on", "You'll get a desktop alert before your events start.");
+      } else {
+        this.showToast("Notifications were blocked — reminders will still appear in the dashboard", "info");
+      }
+      this.renderDashboardReminders();
+    } catch (e) {
+      console.warn("Notification permission error:", e);
+    }
+  }
+
+  // Fires a reminder alert once, when an event crosses its reminder threshold.
+  checkDueReminders() {
+    const now = Date.now();
+    const due = this.events
+      .filter(ev => ev.reminderMinutes > 0)
+      .map(ev => ({ ev, start: this.eventStart(ev).getTime() }))
+      .filter(({ start }) => start > now && start - now <= 60000)
+      .sort((a, b) => a.start - b.start);
+
+    if (due.length === 0) {
+      this._lastReminderKey = "";
+      return;
+    }
+
+    const key = due.map(({ ev }) => ev.id).join("|");
+    if (key === this._lastReminderKey) return; // already announced this batch
+    this._lastReminderKey = key;
+
+    due.forEach(({ ev }) => {
+      const subject = ev.subject ? ` (${ev.subject})` : "";
+      const message = `${ev.title}${subject} starts at ${this.formatClock(this.eventStart(ev))}`;
+      this.showToast(`Reminder: ${message}`, "info");
+      this.showNotification("StudyBuddy reminder", message);
+    });
+  }
+
+  // ===========================================================================
   // 10. Rendering & Updating Views
   // ===========================================================================
   renderAll() {
     this.updateSubjectDropdowns();
     this.renderDashboardStats();
+    this.renderDashboardReminders();
     this.renderDashboardPriorities();
     this.renderDashboardSchedule();
     this.renderDashboardNotes();
     this.renderTasks();
+    this.renderCalendar();
+    this.renderAgenda();
     this.renderTimetable();
     this.renderNotes();
     this.renderProgressStats();
@@ -1308,7 +1617,8 @@ class StudyBuddyApp {
   updateSubjectDropdowns() {
     const taskSubjects = [...new Set(this.tasks.map(t => t.subject.trim()))];
     const noteSubjects = [...new Set(this.notes.map(n => n.subject.trim()))];
-    const allSubjects = [...new Set([...taskSubjects, ...noteSubjects])].filter(Boolean).sort();
+    const eventSubjects = [...new Set(this.events.map(e => (e.subject || "").trim()))];
+    const allSubjects = [...new Set([...taskSubjects, ...noteSubjects, ...eventSubjects])].filter(Boolean).sort();
 
     // Task Filter Dropdown
     const taskFilter = document.getElementById("task-filter-subject");
@@ -1498,6 +1808,242 @@ class StudyBuddyApp {
         const note = this.notes.find(n => n.id === card.dataset.noteId);
         if (note) this.openNoteModal(note);
       });
+    });
+  }
+
+  // Dashboard: upcoming events with live countdowns
+  renderDashboardReminders() {
+    const container = document.getElementById("dashboard-reminders-list");
+    if (!container) return;
+
+    this.checkDueReminders();
+
+    const upcoming = this.getUpcomingEvents(6);
+
+    // Keep the Calendar nav badge showing how many events are still ahead.
+    const badge = document.getElementById("calendar-badge");
+    if (badge) badge.textContent = upcoming.length;
+
+    if (upcoming.length === 0) {
+      container.innerHTML = `
+        <div class="empty-inline">
+          <i class="fa-regular fa-bell"></i>
+          <p class="text-sm">No upcoming tests or events planned. Add one from the Calendar tab!</p>
+          <button class="quick-action-chip" data-tab="calendar"><i class="fa-solid fa-plus"></i> Plan an Event</button>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = upcoming.map(ev => {
+      const typeInfo = this.eventTypeInfo(ev.type);
+      const countdown = this.formatCountdown(ev);
+      const isTest = ev.type === "test";
+      const urgent = isTest || countdown.state === "urgent" || countdown.state === "now";
+
+      return `
+        <div class="reminder-item ${urgent ? 'is-urgent' : ''}">
+          <div class="reminder-icon type-${ev.type}">
+            <i class="${typeInfo.icon}"></i>
+          </div>
+          <div class="reminder-info">
+            <div class="reminder-title">${this.escapeHTML(ev.title)}</div>
+            <div class="reminder-when">
+              <i class="fa-regular fa-calendar"></i> ${this.formatLongDate(this.eventStart(ev))}
+              <span>·</span>
+              <i class="fa-regular fa-clock"></i> ${this.formatClock(this.eventStart(ev))} – ${this.formatClock(this.eventEnd(ev))}
+              ${ev.subject ? `<span class="badge badge-sky">${this.escapeHTML(ev.subject)}</span>` : ""}
+            </div>
+            <span class="reminder-countdown ${countdown.state === 'now' ? 'is-now' : ''} ${countdown.state === 'urgent' ? 'is-urgent' : ''}">
+              <i class="fa-solid fa-hourglass-half"></i> ${this.escapeHTML(countdown.text)}
+            </span>
+          </div>
+          <div class="reminder-actions">
+            <button class="btn-icon-action edit-event-btn" data-event-id="${ev.id}" title="Edit event">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    container.querySelectorAll(".edit-event-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ev = this.events.find(e => e.id === btn.dataset.eventId);
+        if (ev) this.openEventModal(ev);
+      });
+    });
+  }
+
+  // Calendar month grid
+  renderCalendar() {
+    const grid = document.getElementById("calendar-grid");
+    const titleEl = document.getElementById("cal-month-title");
+    if (!grid) return;
+
+    const monthNames = ["January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"];
+
+    if (titleEl) titleEl.textContent = `${monthNames[this.calendarMonth]} ${this.calendarYear}`;
+
+    const firstOfMonth = new Date(this.calendarYear, this.calendarMonth, 1);
+    // Monday-first grid offset
+    const leadingBlanks = (firstOfMonth.getDay() + 6) % 7;
+    const daysInMonth = new Date(this.calendarYear, this.calendarMonth + 1, 0).getDate();
+
+    const todayKey = this.toDateKey(new Date());
+    const cells = [];
+
+    // Leading days from the previous month
+    const prevMonthDays = new Date(this.calendarYear, this.calendarMonth, 0).getDate();
+    for (let i = leadingBlanks - 1; i >= 0; i--) {
+      const d = prevMonthDays - i;
+      const dateObj = new Date(this.calendarYear, this.calendarMonth - 1, d);
+      cells.push({ dateObj, outside: true });
+    }
+
+    // Current month
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push({ dateObj: new Date(this.calendarYear, this.calendarMonth, d), outside: false });
+    }
+
+    // Trailing days to complete the final week row
+    let trailing = cells.length % 7;
+    if (trailing !== 0) {
+      for (let d = 1; d <= 7 - trailing; d++) {
+        cells.push({ dateObj: new Date(this.calendarYear, this.calendarMonth + 1, d), outside: true });
+      }
+    }
+
+    grid.innerHTML = cells.map(cell => {
+      const key = this.toDateKey(cell.dateObj);
+      const dayEvents = this.events
+        .filter(ev => ev.date === key)
+        .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+
+      const classes = [
+        "calendar-day",
+        cell.outside ? "outside-month" : "",
+        key === todayKey ? "today" : "",
+        key === this.selectedDate ? "selected" : ""
+      ].filter(Boolean).join(" ");
+
+      const shown = dayEvents.slice(0, 2).map(ev => `
+        <span class="day-event-chip type-${ev.type}">
+          ${this.escapeHTML((ev.startTime || "").slice(0, 5))} ${this.escapeHTML(ev.title)}
+        </span>
+      `).join('');
+
+      const more = dayEvents.length > 2
+        ? `<span class="day-more">+${dayEvents.length - 2} more</span>`
+        : "";
+
+      return `
+        <button class="${classes}" data-date="${key}">
+          <span class="day-number">${cell.dateObj.getDate()}</span>
+          <span class="day-events">${shown}${more}</span>
+        </button>
+      `;
+    }).join('');
+
+    grid.querySelectorAll(".calendar-day").forEach(btn => {
+      btn.addEventListener("click", () => {
+        this.selectedDate = btn.dataset.date;
+        // Selecting a day from an adjacent month follows it.
+        const [y, m] = this.selectedDate.split("-").map(Number);
+        if (y !== this.calendarYear || m - 1 !== this.calendarMonth) {
+          this.calendarYear = y;
+          this.calendarMonth = m - 1;
+        }
+        this.renderCalendar();
+        this.renderAgenda();
+      });
+    });
+  }
+
+  // Agenda for the selected calendar day
+  renderAgenda() {
+    const container = document.getElementById("agenda-list");
+    const emptyState = document.getElementById("agenda-empty-state");
+    const titleEl = document.getElementById("agenda-date-title");
+    const countEl = document.getElementById("agenda-count");
+    if (!container) return;
+
+    const selected = new Date(`${this.selectedDate}T00:00:00`);
+    const todayKey = this.toDateKey(new Date());
+    const yesterdayKey = this.toDateKey(new Date(Date.now() - 86400000));
+    const tomorrowKey = this.toDateKey(new Date(Date.now() + 86400000));
+
+    if (titleEl) {
+      let label = this.selectedDate === todayKey ? "Today"
+        : this.selectedDate === tomorrowKey ? "Tomorrow"
+        : this.selectedDate === yesterdayKey ? "Yesterday"
+        : selected.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+      titleEl.textContent = `${label}'s Agenda`;
+    }
+
+    const dayEvents = this.events
+      .filter(ev => ev.date === this.selectedDate)
+      .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+
+    if (countEl) {
+      countEl.textContent = `${dayEvents.length} event${dayEvents.length === 1 ? '' : 's'}`;
+    }
+
+    if (dayEvents.length === 0) {
+      container.innerHTML = "";
+      emptyState?.classList.remove("hidden");
+      return;
+    }
+
+    emptyState?.classList.add("hidden");
+
+    container.innerHTML = dayEvents.map(ev => {
+      const typeInfo = this.eventTypeInfo(ev.type);
+      const countdown = this.formatCountdown(ev);
+      const duration = this.formatDurationShort(
+        Math.round((this.eventEnd(ev) - this.eventStart(ev)) / 60000)
+      );
+
+      return `
+        <div class="agenda-item type-${ev.type}">
+          <div class="agenda-time">
+            <span>${this.escapeHTML((ev.startTime || "").slice(0, 5))}</span>
+            <span class="agenda-duration">${duration}</span>
+          </div>
+          <div class="agenda-content">
+            <div class="agenda-title">${this.escapeHTML(ev.title)}</div>
+            <div class="agenda-tags">
+              <span class="badge badge-primary">${typeInfo.label}</span>
+              ${ev.subject ? `<span class="badge badge-sky">${this.escapeHTML(ev.subject)}</span>` : ""}
+              ${ev.location ? `<span class="agenda-meta"><i class="fa-solid fa-location-dot"></i> ${this.escapeHTML(ev.location)}</span>` : ""}
+            </div>
+            ${ev.notes ? `<p class="agenda-notes">${this.escapeHTML(ev.notes)}</p>` : ""}
+          </div>
+          <div class="agenda-actions">
+            <span class="agenda-countdown ${countdown.state === 'now' ? 'is-now' : ''} ${countdown.state === 'past' ? 'is-past' : ''}">
+              ${this.escapeHTML(countdown.text)}
+            </span>
+            <button class="btn-icon-action" data-event-id="${ev.id}" data-action="edit" title="Edit event">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+            <button class="btn-icon-action delete" data-event-id="${ev.id}" data-action="delete" title="Delete event">
+              <i class="fa-regular fa-trash-can"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    container.querySelectorAll("[data-action='edit']").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ev = this.events.find(e => e.id === btn.dataset.eventId);
+        if (ev) this.openEventModal(ev);
+      });
+    });
+
+    container.querySelectorAll("[data-action='delete']").forEach(btn => {
+      btn.addEventListener("click", () => this.deleteEvent(btn.dataset.eventId));
     });
   }
 
