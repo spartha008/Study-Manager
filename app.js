@@ -364,6 +364,7 @@ class StudyBuddyApp {
     this.events = [];
     this.focusMinutes = 0;
     this.pomodoroSessions = 0;
+    this.activeDates = [];
     this._persistTimer = null;
     this._reminderTick = null;
     this._lastReminderKey = "";
@@ -453,6 +454,7 @@ class StudyBuddyApp {
       this.events = Array.isArray(saved.events) ? saved.events : [];
       this.focusMinutes = Number(saved.focusMinutes) || 0;
       this.pomodoroSessions = Number(saved.pomodoroSessions) || 0;
+      this.activeDates = Array.isArray(saved.activeDates) ? saved.activeDates : [];
 
       // One-time cleanup: accounts that signed up while the app still shipped
       // with sample data had that demo content saved into their workspace.
@@ -466,9 +468,11 @@ class StudyBuddyApp {
       this.events = [];
       this.focusMinutes = 0;
       this.pomodoroSessions = 0;
+      this.activeDates = [];
       this.persist();
     }
     AuthGate.showLoading("Starting StudyBuddy…");
+    this.backfillActivityFromData();
     this.init();
   }
 
@@ -530,7 +534,8 @@ class StudyBuddyApp {
       notes: this.notes,
       events: this.events,
       focusMinutes: this.focusMinutes,
-      pomodoroSessions: this.pomodoroSessions
+      pomodoroSessions: this.pomodoroSessions,
+      activeDates: this.activeDates
     };
     try {
       await RemoteStore.save(this.user.id, state);
@@ -612,6 +617,7 @@ class StudyBuddyApp {
           this.events = [];
           this.focusMinutes = 0;
           this.pomodoroSessions = 0;
+          this.activeDates = [];
           this.persist();
           this.renderAll();
           this.showToast("All data cleared", "info");
@@ -886,6 +892,7 @@ class StudyBuddyApp {
     }
 
     this.saveTasks();
+    this.recordActivity();
     this.closeModal(document.getElementById("task-modal"));
     this.renderAll();
   }
@@ -901,6 +908,7 @@ class StudyBuddyApp {
       SoundFX.playSuccess();
       ConfettiFX.launch();
       this.showToast("Great job completing your assignment! 🎉");
+      this.recordActivity();
     }
 
     this.renderAll();
@@ -1049,6 +1057,7 @@ class StudyBuddyApp {
     if (slot.completed) {
       SoundFX.playSuccess();
       this.showToast("Session marked as attended / completed!");
+      this.recordActivity();
     }
     this.renderAll();
   }
@@ -1140,6 +1149,7 @@ class StudyBuddyApp {
     }
 
     this.saveNotes();
+    this.recordActivity();
     this.closeModal(document.getElementById("note-modal"));
     this.renderAll();
   }
@@ -1277,6 +1287,7 @@ class StudyBuddyApp {
     if (this.timerMode === "pomodoro") {
       this.pomodoroSessions++;
       this.focusMinutes += 25;
+      this.recordActivity();
       this.schedulePersist();
       this.showToast("Focus session finished! Time for a well-earned break! ☕");
       this.setTimerMode("shortBreak");
@@ -1508,6 +1519,7 @@ class StudyBuddyApp {
     this.selectedDate = date;
 
     this.saveEvents();
+    this.recordActivity();
     this.closeModal(document.getElementById("event-modal"));
     this.renderAll();
   }
@@ -1526,6 +1538,132 @@ class StudyBuddyApp {
 
   saveEvents() {
     this.schedulePersist();
+  }
+
+  // ===========================================================================
+  // 9d. Study Streak Tracking
+  // ===========================================================================
+
+  /**
+   * Records that the user did something meaningful today. A day only counts
+   * once, so callers can fire this freely on every save.
+   */
+  recordActivity() {
+    const today = this.toDateKey(new Date());
+    if (!this.activeDates.includes(today)) {
+      this.activeDates.push(today);
+      this.schedulePersist();
+    }
+  }
+
+  /**
+   * Backfills history for accounts created before streak tracking existed by
+   * inferring activity from the tasks, sessions and events they already have.
+   * Stored timestamps are UTC, so they're converted to local dates.
+   */
+  backfillActivityFromData() {
+    if (this.activeDates.length > 0) return;
+
+    const inferred = new Set();
+    const addFromISO = (iso) => {
+      if (!iso) return;
+      const d = new Date(iso);
+      if (!isNaN(d)) inferred.add(this.toDateKey(d));
+    };
+
+    this.tasks.forEach(t => addFromISO(t.createdAt));
+    this.events.forEach(e => {
+      addFromISO(e.createdAt);
+      if (e.date) inferred.add(e.date);
+    });
+
+    if (inferred.size === 0) return;
+
+    this.activeDates = [...inferred];
+    this.schedulePersist();
+  }
+
+  /**
+   * Consecutive days of activity ending today (or yesterday, so a streak isn't
+   * considered broken until a full day has been missed).
+   */
+  getCurrentStreak() {
+    const days = new Set(this.activeDates);
+    const cursor = new Date();
+    cursor.setHours(0, 0, 0, 0);
+
+    if (!days.has(this.toDateKey(cursor))) {
+      cursor.setDate(cursor.getDate() - 1);
+      if (!days.has(this.toDateKey(cursor))) return 0;
+    }
+
+    let streak = 0;
+    while (days.has(this.toDateKey(cursor))) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  }
+
+  // The seven days ending today, for the weekly habit bubbles.
+  getWeeklyActivity() {
+    const days = new Set(this.activeDates);
+    const week = [];
+    const cursor = new Date();
+    cursor.setHours(0, 0, 0, 0);
+    cursor.setDate(cursor.getDate() - 6);
+
+    for (let i = 0; i < 7; i++) {
+      const key = this.toDateKey(cursor);
+      week.push({
+        key,
+        label: cursor.toLocaleDateString("en-US", { weekday: "narrow" }),
+        done: days.has(key),
+        isToday: key === this.toDateKey(new Date())
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return week;
+  }
+
+  renderStreak() {
+    const streak = this.getCurrentStreak();
+
+    // Sidebar badge
+    const sidebarStreak = document.getElementById("sidebar-streak");
+    if (sidebarStreak) {
+      const text = streak === 0 ? "No streak yet"
+        : `${streak} Day Streak`;
+      sidebarStreak.innerHTML = `<i class="fa-solid fa-fire text-amber"></i> ${text}`;
+    }
+
+    // Progress-tab banner
+    const titleEl = document.getElementById("streak-banner-title");
+    const textEl = document.getElementById("streak-banner-text");
+    if (titleEl) {
+      if (streak === 0) {
+        titleEl.textContent = "No study streak yet";
+        if (textEl) textEl.textContent = "Complete an assignment, mark a session done, or finish a focus sprint to start your streak.";
+      } else {
+        titleEl.textContent = `${streak} Day Study Streak Active!`;
+        if (textEl) {
+          textEl.textContent = streak === 1
+            ? "Nice start — come back tomorrow to keep it going."
+            : "You've stayed consistent with your studies. Keep the momentum up!";
+        }
+      }
+    }
+
+    // Weekly bubbles
+    const container = document.getElementById("weekly-streak-days");
+    if (container) {
+      container.innerHTML = this.getWeeklyActivity().map(day => `
+        <div class="day-bubble ${day.done ? 'done' : ''} ${day.isToday ? 'today' : ''}">
+          <span>${day.label}</span>
+          ${day.done ? '<i class="fa-solid fa-check"></i>' : ''}
+        </div>
+      `).join('');
+    }
   }
 
   // ===========================================================================
@@ -1610,6 +1748,7 @@ class StudyBuddyApp {
     this.renderAgenda();
     this.renderTimetable();
     this.renderNotes();
+    this.renderStreak();
     this.renderProgressStats();
   }
 

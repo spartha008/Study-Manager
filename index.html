@@ -109,7 +109,7 @@
         </div>
         <div class="user-info">
           <span class="user-name" id="display-user-name">Student</span>
-          <span class="user-level"><i class="fa-solid fa-fire text-amber"></i> 5 Day Streak</span>
+          <span class="user-level" id="sidebar-streak"><i class="fa-solid fa-fire text-amber"></i> 0 Day Streak</span>
         </div>
       </div>
 
@@ -714,19 +714,13 @@
                     <i class="fa-solid fa-fire text-amber"></i>
                   </div>
                   <div class="streak-details">
-                    <h4>5 Day Study Streak Active!</h4>
-                    <p class="text-sm text-muted">You've logged in and completed study tasks consistently this week.</p>
+                    <h4 id="streak-banner-title">No study streak yet</h4>
+                    <p class="text-sm text-muted" id="streak-banner-text">Complete an assignment or log a focus session to start your streak.</p>
                   </div>
                 </div>
                 
                 <div class="weekly-streak-days" id="weekly-streak-days">
-                  <div class="day-bubble done"><span>M</span><i class="fa-solid fa-check"></i></div>
-                  <div class="day-bubble done"><span>T</span><i class="fa-solid fa-check"></i></div>
-                  <div class="day-bubble done"><span>W</span><i class="fa-solid fa-check"></i></div>
-                  <div class="day-bubble done"><span>T</span><i class="fa-solid fa-check"></i></div>
-                  <div class="day-bubble done"><span>F</span><i class="fa-solid fa-check"></i></div>
-                  <div class="day-bubble"><span>S</span></div>
-                  <div class="day-bubble"><span>S</span></div>
+                  <!-- Dynamically populated from real activity -->
                 </div>
               </div>
             </div>
