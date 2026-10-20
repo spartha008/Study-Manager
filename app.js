@@ -195,7 +195,7 @@ const supabaseClient = IS_CONFIGURED
 
 // Shown on the loading/login screens so it's always obvious which build is
 // actually running in the browser (rules out stale-cache confusion).
-const APP_BUILD = "build 2026-10-20c";
+const APP_BUILD = "build 2026-10-20d";
 
 /**
  * RemoteStore - reads/writes the signed-in user's single workspace row in
@@ -362,6 +362,7 @@ class StudyBuddyApp {
     this.timetable = [];
     this.notes = [];
     this.events = [];
+    this.marks = [];
     this.focusMinutes = 0;
     this.pomodoroSessions = 0;
     this.activeDates = [];
@@ -399,6 +400,11 @@ class StudyBuddyApp {
     this.noteSearch = "";
     this.noteSubjectFilter = "all";
 
+    // Marks & Grades state
+    this.markSearch = "";
+    this.markSubjectFilter = "all";
+    this.markSort = "recent"; // recent | oldest | highest | lowest
+
     this.theme = "light";
 
     this.init();
@@ -415,6 +421,7 @@ class StudyBuddyApp {
     this.setupTimetableEvents();
     this.setupNoteEvents();
     this.setupCalendarEvents();
+    this.setupMarkEvents();
     this.setupPomodoroEvents();
     this.setupQuotes();
     this.setupTheme();
@@ -455,6 +462,7 @@ class StudyBuddyApp {
       this.timetable = Array.isArray(saved.timetable) ? saved.timetable : [];
       this.notes = Array.isArray(saved.notes) ? saved.notes : [];
       this.events = Array.isArray(saved.events) ? saved.events : [];
+      this.marks = Array.isArray(saved.marks) ? saved.marks : [];
       this.focusMinutes = Number(saved.focusMinutes) || 0;
       this.pomodoroSessions = Number(saved.pomodoroSessions) || 0;
       this.activeDates = Array.isArray(saved.activeDates) ? saved.activeDates : [];
@@ -469,6 +477,7 @@ class StudyBuddyApp {
       this.timetable = [];
       this.notes = [];
       this.events = [];
+      this.marks = [];
       this.focusMinutes = 0;
       this.pomodoroSessions = 0;
       this.activeDates = [];
@@ -536,6 +545,7 @@ class StudyBuddyApp {
       timetable: this.timetable,
       notes: this.notes,
       events: this.events,
+      marks: this.marks,
       focusMinutes: this.focusMinutes,
       pomodoroSessions: this.pomodoroSessions,
       activeDates: this.activeDates
@@ -613,11 +623,12 @@ class StudyBuddyApp {
     const clearBtn = document.getElementById("clear-all-data-btn");
     if (clearBtn) {
       clearBtn.addEventListener("click", () => {
-        if (confirm("Clear your entire workspace? This permanently deletes all your assignments, study slots, and notes.")) {
+        if (confirm("Clear your entire workspace? This permanently deletes all your assignments, study slots, notes, events and marks.")) {
           this.tasks = [];
           this.timetable = [];
           this.notes = [];
           this.events = [];
+          this.marks = [];
           this.focusMinutes = 0;
           this.pomodoroSessions = 0;
           this.activeDates = [];
@@ -748,8 +759,15 @@ class StudyBuddyApp {
     document.getElementById("close-event-modal-btn")?.addEventListener("click", () => this.closeModal(eventModal));
     document.getElementById("cancel-event-btn")?.addEventListener("click", () => this.closeModal(eventModal));
 
+    // Mark Modal
+    const markModal = document.getElementById("mark-modal");
+    document.getElementById("add-mark-btn")?.addEventListener("click", () => this.openMarkModal());
+    document.getElementById("empty-state-add-mark-btn")?.addEventListener("click", () => this.openMarkModal());
+    document.getElementById("close-mark-modal-btn")?.addEventListener("click", () => this.closeModal(markModal));
+    document.getElementById("cancel-mark-btn")?.addEventListener("click", () => this.closeModal(markModal));
+
     // Close on backdrop click
-    [taskModal, timetableModal, noteModal, eventModal].forEach(modal => {
+    [taskModal, timetableModal, noteModal, eventModal, markModal].forEach(modal => {
       modal?.addEventListener("click", (e) => {
         if (e.target === modal) this.closeModal(modal);
       });
@@ -1767,6 +1785,243 @@ class StudyBuddyApp {
   }
 
   // ===========================================================================
+  // 9f. Marks & Grades
+  // ===========================================================================
+
+  // Percentage for a mark, guarded against a zero/invalid maximum.
+  markPercent(mark) {
+    const max = Number(mark.maxMarks);
+    const score = Number(mark.score);
+    if (!max || max <= 0 || isNaN(max) || isNaN(score)) return null;
+    return Math.round((score / max) * 1000) / 10; // one decimal place
+  }
+
+  // Letter grade from a percentage.
+  markGrade(percent) {
+    if (percent === null) return "—";
+    if (percent >= 90) return "A+";
+    if (percent >= 85) return "A";
+    if (percent >= 80) return "A-";
+    if (percent >= 75) return "B+";
+    if (percent >= 70) return "B";
+    if (percent >= 65) return "B-";
+    if (percent >= 60) return "C+";
+    if (percent >= 55) return "C";
+    if (percent >= 50) return "D";
+    return "F";
+  }
+
+  // Colour band used for the left border / score badge.
+  markGradeBand(percent) {
+    if (percent === null) return "mid";
+    if (percent >= 75) return "high";
+    if (percent >= 50) return "mid";
+    return "low";
+  }
+
+  markTypeLabel(type) {
+    switch (type) {
+      case "exam": return "Exam";
+      case "quiz": return "Quiz";
+      case "assignment": return "Assignment";
+      case "project": return "Project";
+      case "oral": return "Oral";
+      default: return "Test";
+    }
+  }
+
+  // Weighted percentage across all marks (falls back to a simple average when
+  // no weights have been provided).
+  marksOverallPercent() {
+    const scored = this.marks.filter(m => this.markPercent(m) !== null);
+    if (scored.length === 0) return null;
+
+    const weighted = scored.filter(m => Number(m.weight) > 0);
+    if (weighted.length > 0) {
+      let totalWeight = 0;
+      let sum = 0;
+      weighted.forEach(m => {
+        const w = Number(m.weight);
+        totalWeight += w;
+        sum += this.markPercent(m) * w;
+      });
+      if (totalWeight > 0) return Math.round((sum / totalWeight) * 10) / 10;
+    }
+
+    const avg = scored.reduce((acc, m) => acc + this.markPercent(m), 0) / scored.length;
+    return Math.round(avg * 10) / 10;
+  }
+
+  // [{ subject, percent, count }] sorted by strongest first.
+  marksSubjectAverages() {
+    const groups = {};
+    this.marks.forEach(m => {
+      const p = this.markPercent(m);
+      if (p === null) return;
+      const subject = (m.subject || "General").trim();
+      if (!groups[subject]) groups[subject] = { subject, sum: 0, count: 0 };
+      groups[subject].sum += p;
+      groups[subject].count++;
+    });
+
+    return Object.values(groups)
+      .map(g => ({
+        subject: g.subject,
+        percent: Math.round((g.sum / g.count) * 10) / 10,
+        count: g.count
+      }))
+      .sort((a, b) => b.percent - a.percent);
+  }
+
+  setupMarkEvents() {
+    document.getElementById("mark-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      this.saveMarkFromForm();
+    });
+
+    document.getElementById("mark-search-input")?.addEventListener("input", (e) => {
+      this.markSearch = e.target.value.toLowerCase().trim();
+      this.renderMarks();
+    });
+
+    document.getElementById("mark-filter-subject")?.addEventListener("change", (e) => {
+      this.markSubjectFilter = e.target.value;
+      this.renderMarks();
+    });
+
+    document.getElementById("mark-sort-select")?.addEventListener("change", (e) => {
+      this.markSort = e.target.value;
+      this.renderMarks();
+    });
+
+    // Live percentage preview inside the modal.
+    const updatePreview = () => this.updateMarkPercentPreview();
+    document.getElementById("mark-score-input")?.addEventListener("input", updatePreview);
+    document.getElementById("mark-max-input")?.addEventListener("input", updatePreview);
+  }
+
+  updateMarkPercentPreview() {
+    const el = document.getElementById("mark-percent-preview");
+    if (!el) return;
+
+    const score = parseFloat(document.getElementById("mark-score-input")?.value);
+    const max = parseFloat(document.getElementById("mark-max-input")?.value);
+    const percent = this.markPercent({ score, maxMarks: max });
+
+    if (percent === null) {
+      el.className = "form-hint";
+      el.innerHTML = `<i class="fa-solid fa-calculator"></i> Enter a score to see the percentage.`;
+      return;
+    }
+
+    const band = this.markGradeBand(percent);
+    el.className = `form-hint ${band === "high" ? "percent-good" : band === "low" ? "percent-low" : ""}`.trim();
+    el.innerHTML = `<i class="fa-solid fa-calculator"></i> That's <strong>${percent}%</strong> — Grade ${this.markGrade(percent)}.`;
+  }
+
+  openMarkModal(mark = null) {
+    const modal = document.getElementById("mark-modal");
+    const form = document.getElementById("mark-form");
+    const titleEl = document.getElementById("mark-modal-title");
+
+    form.reset();
+
+    if (mark) {
+      titleEl.textContent = "Edit Mark";
+      document.getElementById("mark-id").value = mark.id;
+      document.getElementById("mark-title-input").value = mark.title;
+      document.getElementById("mark-subject-input").value = mark.subject || "";
+      document.getElementById("mark-date-input").value = mark.date || this.toDateKey(new Date());
+      document.getElementById("mark-score-input").value = mark.score;
+      document.getElementById("mark-max-input").value = mark.maxMarks;
+      document.getElementById("mark-type-select").value = mark.type || "test";
+      document.getElementById("mark-weight-input").value = mark.weight || "";
+      document.getElementById("mark-notes-input").value = mark.notes || "";
+    } else {
+      titleEl.textContent = "Record a Mark";
+      document.getElementById("mark-id").value = "";
+      document.getElementById("mark-date-input").value = this.toDateKey(new Date());
+      document.getElementById("mark-type-select").value = "test";
+    }
+
+    this.updateMarkPercentPreview();
+    this.openModal(modal);
+  }
+
+  saveMarkFromForm() {
+    const id = document.getElementById("mark-id").value;
+    const title = document.getElementById("mark-title-input").value.trim();
+    const subject = document.getElementById("mark-subject-input").value.trim();
+    const date = document.getElementById("mark-date-input").value;
+    const score = parseFloat(document.getElementById("mark-score-input").value);
+    const maxMarks = parseFloat(document.getElementById("mark-max-input").value);
+    const type = document.getElementById("mark-type-select").value;
+    const weightRaw = document.getElementById("mark-weight-input").value;
+    const weight = weightRaw === "" ? null : parseFloat(weightRaw);
+    const notes = document.getElementById("mark-notes-input").value.trim();
+
+    if (!title || !subject || !date) {
+      this.showToast("Please fill in the title, subject and date", "alert");
+      return;
+    }
+
+    if (isNaN(score) || isNaN(maxMarks) || maxMarks <= 0) {
+      this.showToast("Please enter a valid score and maximum mark", "alert");
+      return;
+    }
+
+    if (score < 0 || score > maxMarks) {
+      this.showToast("Score must be between 0 and the maximum mark", "alert");
+      return;
+    }
+
+    if (weight !== null && (isNaN(weight) || weight < 0 || weight > 100)) {
+      this.showToast("Weight must be between 0 and 100", "alert");
+      return;
+    }
+
+    if (id) {
+      const index = this.marks.findIndex(m => m.id === id);
+      if (index !== -1) {
+        this.marks[index] = {
+          ...this.marks[index],
+          title, subject, date, score, maxMarks, type, weight, notes
+        };
+        this.showToast("Mark updated!");
+      }
+    } else {
+      this.marks.unshift({
+        id: "mark-" + Date.now(),
+        title, subject, date, score, maxMarks, type, weight, notes,
+        createdAt: new Date().toISOString()
+      });
+      const percent = this.markPercent({ score, maxMarks });
+      this.showToast(`Mark saved — ${percent}% (${this.markGrade(percent)})`);
+    }
+
+    this.saveMarks();
+    this.recordActivity();
+    this.closeModal(document.getElementById("mark-modal"));
+    this.renderAll();
+  }
+
+  deleteMark(id) {
+    const mark = this.marks.find(m => m.id === id);
+    if (!mark) return;
+
+    if (confirm(`Delete the mark for "${mark.title}"?`)) {
+      this.marks = this.marks.filter(m => m.id !== id);
+      this.saveMarks();
+      this.renderAll();
+      this.showToast("Mark deleted", "info");
+    }
+  }
+
+  saveMarks() {
+    this.schedulePersist();
+  }
+
+  // ===========================================================================
   // 10. Rendering & Updating Views
   // ===========================================================================
   renderAll() {
@@ -1781,6 +2036,7 @@ class StudyBuddyApp {
     this.renderAgenda();
     this.renderTimetable();
     this.renderNotes();
+    this.renderMarks();
     this.renderStreak();
     this.renderProgressStats();
   }
@@ -1790,7 +2046,8 @@ class StudyBuddyApp {
     const taskSubjects = [...new Set(this.tasks.map(t => t.subject.trim()))];
     const noteSubjects = [...new Set(this.notes.map(n => n.subject.trim()))];
     const eventSubjects = [...new Set(this.events.map(e => (e.subject || "").trim()))];
-    const allSubjects = [...new Set([...taskSubjects, ...noteSubjects, ...eventSubjects])].filter(Boolean).sort();
+    const markSubjects = [...new Set(this.marks.map(m => (m.subject || "").trim()))];
+    const allSubjects = [...new Set([...taskSubjects, ...noteSubjects, ...eventSubjects, ...markSubjects])].filter(Boolean).sort();
 
     // Task Filter Dropdown
     const taskFilter = document.getElementById("task-filter-subject");
@@ -1807,6 +2064,14 @@ class StudyBuddyApp {
       noteFilter.innerHTML = '<option value="all">All Subjects</option>' +
         allSubjects.map(s => `<option value="${s}" ${current === s ? 'selected' : ''}>${s}</option>`).join('');
     }
+
+    // Marks Filter Dropdown
+    const markFilter = document.getElementById("mark-filter-subject");
+    if (markFilter) {
+      const current = markFilter.value;
+      markFilter.innerHTML = '<option value="all">All Subjects</option>' +
+        allSubjects.map(s => `<option value="${s}" ${current === s ? 'selected' : ''}>${s}</option>`).join('');
+    }
   }
 
   // Dashboard Stats
@@ -1816,6 +2081,9 @@ class StudyBuddyApp {
 
     const pendingBadge = document.getElementById("pending-badge");
     if (pendingBadge) pendingBadge.textContent = pendingTasks.length;
+
+    const marksBadge = document.getElementById("marks-badge");
+    if (marksBadge) marksBadge.textContent = this.marks.length;
 
     const statPending = document.getElementById("stat-pending");
     if (statPending) statPending.textContent = pendingTasks.length;
@@ -2454,6 +2722,148 @@ class StudyBuddyApp {
         this.deleteNote(btn.dataset.noteId);
       });
     });
+  }
+
+  // Render Marks & Grades
+  renderMarks() {
+    this.renderMarksSummary();
+    this.renderMarksSubjects();
+
+    const container = document.getElementById("marks-list");
+    const emptyState = document.getElementById("marks-empty-state");
+    if (!container) return;
+
+    let filtered = this.marks.filter(mark => {
+      const haystack = `${mark.title} ${mark.subject}`.toLowerCase();
+      const matchSearch = !this.markSearch || haystack.includes(this.markSearch);
+      const matchSubject = this.markSubjectFilter === "all" ? true : (mark.subject || "") === this.markSubjectFilter;
+      return matchSearch && matchSubject;
+    });
+
+    // Sorting
+    const dateOf = m => (m.date ? new Date(m.date + "T00:00:00").getTime() : 0);
+    switch (this.markSort) {
+      case "oldest": filtered.sort((a, b) => dateOf(a) - dateOf(b)); break;
+      case "highest": filtered.sort((a, b) => (this.markPercent(b) ?? -1) - (this.markPercent(a) ?? -1)); break;
+      case "lowest": filtered.sort((a, b) => (this.markPercent(a) ?? 101) - (this.markPercent(b) ?? 101)); break;
+      default: filtered.sort((a, b) => dateOf(b) - dateOf(a));
+    }
+
+    if (filtered.length === 0) {
+      container.innerHTML = "";
+      emptyState?.classList.remove("hidden");
+      return;
+    }
+
+    emptyState?.classList.add("hidden");
+
+    container.innerHTML = filtered.map(mark => {
+      const percent = this.markPercent(mark);
+      const band = this.markGradeBand(percent);
+      const grade = this.markGrade(percent);
+      const dateLabel = mark.date
+        ? new Date(mark.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+        : "No date";
+
+      return `
+        <div class="mark-card grade-${band}">
+          <div class="mark-card-top">
+            <div style="min-width: 0;">
+              <div class="mark-card-title">${this.escapeHTML(mark.title)}</div>
+              <div class="mark-card-tags">
+                <span class="badge badge-primary">${this.escapeHTML(mark.subject)}</span>
+                <span class="badge badge-sky">${this.markTypeLabel(mark.type)}</span>
+                ${Number(mark.weight) > 0 ? `<span class="mark-grade-chip">${mark.weight}% weight</span>` : ""}
+              </div>
+            </div>
+            <div class="mark-score-badge grade-${band}">
+              <span class="mark-percent">${percent === null ? "—" : percent + "%"}</span>
+              <span class="mark-fraction">${this.formatScore(mark.score)}/${this.formatScore(mark.maxMarks)}</span>
+            </div>
+          </div>
+
+          ${mark.notes ? `<p class="mark-notes">${this.escapeHTML(mark.notes)}</p>` : ""}
+
+          <div class="mark-card-footer">
+            <span><i class="fa-regular fa-calendar"></i> ${dateLabel}</span>
+            <span class="mark-grade-chip">Grade ${grade}</span>
+            <div class="mark-card-actions">
+              <button class="btn-icon-action edit-mark-btn" data-mark-id="${mark.id}" title="Edit mark">
+                <i class="fa-solid fa-pen-to-square"></i>
+              </button>
+              <button class="btn-icon-action delete delete-mark-btn" data-mark-id="${mark.id}" title="Delete mark">
+                <i class="fa-regular fa-trash-can"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    container.querySelectorAll(".edit-mark-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const mark = this.marks.find(m => m.id === btn.dataset.markId);
+        if (mark) this.openMarkModal(mark);
+      });
+    });
+
+    container.querySelectorAll(".delete-mark-btn").forEach(btn => {
+      btn.addEventListener("click", () => this.deleteMark(btn.dataset.markId));
+    });
+  }
+
+  // Formats a score without trailing ".0" for whole numbers.
+  formatScore(value) {
+    const n = Number(value);
+    if (isNaN(n)) return "—";
+    return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, "");
+  }
+
+  renderMarksSummary() {
+    const overall = this.marksOverallPercent();
+    const averages = this.marksSubjectAverages();
+
+    const percentEl = document.getElementById("marks-overall-percent");
+    if (percentEl) percentEl.textContent = overall === null ? "—" : `${overall}%`;
+
+    const gradeEl = document.getElementById("marks-overall-grade");
+    if (gradeEl) gradeEl.textContent = this.markGrade(overall);
+
+    const countEl = document.getElementById("marks-count");
+    if (countEl) countEl.textContent = this.marks.length;
+
+    const bestEl = document.getElementById("marks-best-subject");
+    if (bestEl) bestEl.textContent = averages.length > 0 ? averages[0].subject : "—";
+  }
+
+  renderMarksSubjects() {
+    const container = document.getElementById("marks-subject-list");
+    if (!container) return;
+
+    const averages = this.marksSubjectAverages();
+    if (averages.length === 0) {
+      container.innerHTML = `<p class="text-sm text-muted">No marks recorded yet — add one to see your subject averages.</p>`;
+      return;
+    }
+
+    container.innerHTML = averages.map(({ subject, percent, count }) => {
+      const band = this.markGradeBand(percent);
+      const color = band === "high" ? "var(--emerald-500)" : band === "low" ? "var(--rose-500)" : "var(--amber-500)";
+      return `
+        <div class="marks-subject-row">
+          <div class="marks-subject-header">
+            <span class="marks-subject-name">
+              ${this.escapeHTML(subject)}
+              <span class="mark-grade-chip">${this.markGrade(percent)}</span>
+            </span>
+            <span class="marks-subject-meta">${percent}% · ${count} test${count === 1 ? '' : 's'}</span>
+          </div>
+          <div class="marks-bar-bg">
+            <div class="marks-bar-fill" style="width: ${Math.min(percent, 100)}%; background-color: ${color};"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
   }
 
   // Render Progress & Focus Analytics

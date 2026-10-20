@@ -43,7 +43,15 @@ A modern, responsive, and beginner-friendly web application built for students t
    - Searchable and filterable by subject.
    - Formatted text support.
 
-5. **⏱️ Progress Tracker & Pomodoro Focus Hub**
+5. **🎓 Marks & Grades Tracker**
+   - Record every test, exam, quiz, assignment, project and oral score.
+   - Automatic percentage and letter grade (A+ through F) per entry.
+   - Overall average — weighted by assessment weight when you provide one, otherwise a simple average.
+   - Per-subject average breakdown with colour-coded progress bars and a "strongest subject" highlight.
+   - Optional weight (%) per assessment, plus notes for feedback and revision targets.
+   - Search, filter by subject, and sort by date or score.
+
+6. **⏱️ Progress Tracker & Pomodoro Focus Hub**
    - Built-in Pomodoro Timer (25m Focus, 5m Short Break, 15m Long Break).
    - Animated SVG circular progress indicator.
    - Automatic focus time accumulator and session count logger.
@@ -51,19 +59,19 @@ A modern, responsive, and beginner-friendly web application built for students t
    - Academic mastery breakdown by subject.
    - 7-day study habit streak tracker.
 
-6. **☁️ Cloud Persistence (Supabase)**
+7. **☁️ Cloud Persistence (Supabase)**
    - Sign in with Google — every account gets its own private workspace.
    - New accounts start with a completely empty workspace — no sample content.
-   - All tasks, timetable sessions, notes, events, and study metrics sync to your Supabase project and follow you across devices.
+   - All tasks, timetable sessions, notes, events, marks and study metrics sync to your Supabase project and follow you across devices.
    - Secured with Row Level Security: no user can ever read or edit another user's data.
    - "Clear All Data" button in the sidebar footer to wipe your workspace anytime.
 
-7. **🌗 Light & Dark Theme**
+8. **🌗 Light & Dark Theme**
    - One-click theme toggle in the top bar (and on the login screen).
    - Dark mode re-points the whole design-token palette — every surface, border, shadow and accent adapts, including the calendar, modals and toasts.
    - Remembers your choice across sessions; follows your operating system preference until you pick one yourself.
 
-8. **📱 Fully Responsive & Clean Design**
+9. **📱 Fully Responsive & Clean Design**
    - Light blue and crisp white palette (`#f0f9ff`, `#e0f2fe`, `#38bdf8`, `#0284c7`) with a matching dark counterpart.
    - Rounded cards with smooth shadows and micro-animations.
    - Mobile slide-out drawer navigation and desktop sidebar.

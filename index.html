@@ -45,6 +45,7 @@
         <li><i class="fa-solid fa-circle-check text-emerald"></i> Daily study timetable &amp; reminders</li>
         <li><i class="fa-solid fa-circle-check text-emerald"></i> Notes, Pomodoro stats &amp; streaks</li>
         <li><i class="fa-solid fa-circle-check text-emerald"></i> Calendar events, reminders &amp; countdowns</li>
+        <li><i class="fa-solid fa-circle-check text-emerald"></i> Test marks, averages &amp; grades</li>
       </ul>
 
       <button id="google-signin-btn" class="btn google-btn btn-lg">
@@ -147,6 +148,11 @@
         <button class="nav-item" data-tab="progress">
           <i class="fa-solid fa-chart-line"></i>
           <span>Progress & Timer</span>
+        </button>
+        <button class="nav-item" data-tab="marks">
+          <i class="fa-solid fa-award"></i>
+          <span>Marks & Grades</span>
+          <span class="badge" id="marks-badge">0</span>
         </button>
       </nav>
 
@@ -737,6 +743,116 @@
           </div>
         </div>
       </section>
+      <!-- TAB: MARKS & GRADES -->
+      <section class="tab-pane" id="tab-marks">
+        <div class="section-header">
+          <div>
+            <h2>Marks &amp; Grades</h2>
+            <p class="subtitle">Record your test and exam scores to track your average and see where to focus.</p>
+          </div>
+          <button id="add-mark-btn" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> Record Mark
+          </button>
+        </div>
+
+        <!-- Summary Metrics -->
+        <div class="marks-summary">
+          <div class="card marks-stat-card">
+            <div class="marks-stat-icon bg-blue-subtle text-primary">
+              <i class="fa-solid fa-percent"></i>
+            </div>
+            <div class="marks-stat-body">
+              <span class="marks-stat-value" id="marks-overall-percent">—</span>
+              <span class="marks-stat-label">Overall Average</span>
+            </div>
+          </div>
+
+          <div class="card marks-stat-card">
+            <div class="marks-stat-icon bg-purple-subtle text-purple">
+              <i class="fa-solid fa-graduation-cap"></i>
+            </div>
+            <div class="marks-stat-body">
+              <span class="marks-stat-value" id="marks-overall-grade">—</span>
+              <span class="marks-stat-label">Overall Grade</span>
+            </div>
+          </div>
+
+          <div class="card marks-stat-card">
+            <div class="marks-stat-icon bg-emerald-subtle text-emerald">
+              <i class="fa-solid fa-file-pen"></i>
+            </div>
+            <div class="marks-stat-body">
+              <span class="marks-stat-value" id="marks-count">0</span>
+              <span class="marks-stat-label">Tests Recorded</span>
+            </div>
+          </div>
+
+          <div class="card marks-stat-card">
+            <div class="marks-stat-icon bg-amber-subtle text-amber">
+              <i class="fa-solid fa-trophy"></i>
+            </div>
+            <div class="marks-stat-body">
+              <span class="marks-stat-value" id="marks-best-subject">—</span>
+              <span class="marks-stat-label">Strongest Subject</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subject Averages -->
+        <div class="card marks-breakdown-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <i class="fa-solid fa-chart-simple text-primary"></i>
+              <h2>Average by Subject</h2>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="marks-subject-list" id="marks-subject-list">
+              <!-- Dynamically populated subject averages -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-toolbar card">
+          <div class="search-input-wrapper">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" id="mark-search-input" placeholder="Search by test title or subject..." class="form-input">
+          </div>
+          <div class="filter-groups">
+            <div class="filter-select-wrapper">
+              <label for="mark-filter-subject" class="filter-label">Filter Subject:</label>
+              <select id="mark-filter-subject" class="form-select">
+                <option value="all">All Subjects</option>
+              </select>
+            </div>
+            <div class="filter-select-wrapper">
+              <label for="mark-sort-select" class="filter-label">Sort By:</label>
+              <select id="mark-sort-select" class="form-select">
+                <option value="recent">Most Recent</option>
+                <option value="oldest">Oldest First</option>
+                <option value="highest">Highest Score</option>
+                <option value="lowest">Lowest Score</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Marks List -->
+        <div class="marks-list" id="marks-list">
+          <!-- Dynamically populated mark cards -->
+        </div>
+
+        <!-- Empty State -->
+        <div class="empty-state hidden" id="marks-empty-state">
+          <div class="empty-icon"><i class="fa-solid fa-award"></i></div>
+          <h3>No marks recorded yet</h3>
+          <p>Add your first test or exam score to start tracking your grades.</p>
+          <button class="btn btn-primary mt-3" id="empty-state-add-mark-btn">
+            <i class="fa-solid fa-plus"></i> Record Mark
+          </button>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -998,6 +1114,81 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" id="cancel-event-btn">Cancel</button>
           <button type="submit" class="btn btn-primary" id="save-event-btn">Save Event</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / EDIT TEST MARK -->
+  <div class="modal-backdrop" id="mark-modal" role="dialog" aria-modal="true" aria-labelledby="mark-modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="mark-modal-title">Record a Mark</h3>
+        <button class="modal-close-btn" id="close-mark-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="mark-form">
+        <input type="hidden" id="mark-id">
+
+        <div class="form-group">
+          <label for="mark-title-input" class="form-label">Test / Exam Title *</label>
+          <input type="text" id="mark-title-input" class="form-input" placeholder="e.g. Calculus Midterm Exam" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="mark-subject-input" class="form-label">Subject *</label>
+            <input type="text" id="mark-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Mathematics" required>
+          </div>
+
+          <div class="form-group">
+            <label for="mark-date-input" class="form-label">Date *</label>
+            <input type="date" id="mark-date-input" class="form-input" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="mark-score-input" class="form-label">Score Obtained *</label>
+            <input type="number" id="mark-score-input" class="form-input" step="0.01" min="0" placeholder="e.g. 42" required>
+          </div>
+
+          <div class="form-group">
+            <label for="mark-max-input" class="form-label">Out of (Maximum) *</label>
+            <input type="number" id="mark-max-input" class="form-input" step="0.01" min="0.01" placeholder="e.g. 50" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="mark-type-select" class="form-label">Assessment Type</label>
+            <select id="mark-type-select" class="form-select">
+              <option value="test" selected>Test</option>
+              <option value="exam">Exam</option>
+              <option value="quiz">Quiz</option>
+              <option value="assignment">Assignment</option>
+              <option value="project">Project</option>
+              <option value="oral">Oral / Presentation</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="mark-weight-input" class="form-label">Weight (%)</label>
+            <input type="number" id="mark-weight-input" class="form-input" step="1" min="0" max="100" placeholder="Optional, e.g. 20">
+          </div>
+        </div>
+
+        <p class="form-hint" id="mark-percent-preview">
+          <i class="fa-solid fa-calculator"></i> Enter a score to see the percentage.
+        </p>
+
+        <div class="form-group">
+          <label for="mark-notes-input" class="form-label">Notes (Optional)</label>
+          <textarea id="mark-notes-input" class="form-textarea" rows="2" placeholder="Topics to revise, teacher feedback..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-mark-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-mark-btn">Save Mark</button>
         </div>
       </form>
     </div>
