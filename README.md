@@ -83,6 +83,7 @@ A modern, responsive, and beginner-friendly web application built for students t
    - Sign in with Google — every account gets its own private workspace.
    - New accounts start with a completely empty workspace — no sample content.
    - All tasks, timetable sessions, notes, events, marks and study metrics sync to your Supabase project and follow you across devices.
+   - Every save also writes a **per-account device mirror** to your browser's local storage — if the cloud ever comes back empty on sign-in, the last saved workspace is restored from this device instead of showing a blank app. (Failed syncs are now surfaced with a toast instead of failing silently.)
    - Secured with Row Level Security: no user can ever read or edit another user's data.
    - "Clear All Data" button in the sidebar footer to wipe your workspace anytime.
 

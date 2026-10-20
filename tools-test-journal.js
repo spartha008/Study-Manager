@@ -303,6 +303,86 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check("legacy entry still readable",
     await page.evaluate(() => window.app.journalEntries[0]?.body === "Written in the old format."));
 
+  // ---------------------------------------------------------------------------
+  // 15. Workspace persistence: the Supabase row is unwrapped on load, load
+  // errors surface, and the per-account device mirror rescues an empty row.
+  // ---------------------------------------------------------------------------
+  console.log("\n15. Cloud workspace persistence (row unwrap + device mirror)");
+  const probe = await page.evaluate(async () => {
+    const state = {
+      tasks: [{
+        id: "task-probe", title: "Probe task", subject: "Mathematics", priority: "high",
+        dueDate: "2026-10-25", estimatedTime: "60", description: "", completed: false,
+        createdAt: "2026-10-20T10:00:00.000Z"
+      }],
+      timetable: [],
+      notes: [],
+      events: [],
+      marks: [{
+        id: "mark-probe", title: "Probe exam", subject: "Physics", date: "2026-10-19",
+        score: 91, maxMarks: 100, type: "Exam", weight: "20", notes: "",
+        createdAt: "2026-10-19T10:00:00.000Z"
+      }],
+      journal: { v: 2, data: { iv: "x", data: "y" }, pw: { salt: "s", verifier: "v", iv: "i", key: "k" } },
+      focusMinutes: 12,
+      pomodoroSessions: 3,
+      activeDates: ["2026-10-20"]
+    };
+    const session = { user: { id: "u-probe", user_metadata: { full_name: "Probe User" } } };
+
+    // A real Supabase response: { data: { data: <workspace jsonb> }, error: null }.
+    RemoteStore.load = async () => ({ data: { data: JSON.parse(JSON.stringify(state)) }, error: null });
+    RemoteStore.save = async () => ({ data: null, error: null });
+
+    const a1 = new StudyBuddyApp();
+    await a1.startSession(session);
+    document.getElementById("auth-loading")?.classList.add("hidden");
+    const fromCloud = {
+      tasks: a1.tasks.length,
+      marks: a1.marks.length,
+      journal: Boolean(a1.journalBlob),
+      focus: a1.focusMinutes
+    };
+
+    // Cloud now reports no row at all (e.g. an older build never saved):
+    // the per-account device mirror written above must bring the data back.
+    RemoteStore.load = async () => ({ data: null, error: null });
+    const a2 = new StudyBuddyApp();
+    await a2.startSession(session);
+    document.getElementById("auth-loading")?.classList.add("hidden");
+    const fromMirror = { tasks: a2.tasks.length, marks: a2.marks.length, journal: Boolean(a2.journalBlob) };
+
+    // A load error must surface as an actionable message, not boot empty.
+    let loadThrew = false;
+    RemoteStore.load = async () => ({
+      data: null,
+      error: { message: "Could not find the table 'public.studybuddy_state' in the schema cache" }
+    });
+    try {
+      await new StudyBuddyApp().startSession(session);
+    } catch (e) {
+      loadThrew = /database table is missing/i.test(e.message || "");
+    }
+    document.getElementById("auth-loading")?.classList.add("hidden");
+
+    return { fromCloud, fromMirror, loadThrew };
+  });
+  check("cloud row unwrapped: tasks restored", probe.fromCloud.tasks === 1, JSON.stringify(probe.fromCloud));
+  check("cloud row unwrapped: marks restored", probe.fromCloud.marks === 1);
+  check("cloud row unwrapped: journal blob + stats restored",
+    probe.fromCloud.journal === true && probe.fromCloud.focus === 12);
+  check("device mirror rescues an empty cloud row",
+    probe.fromMirror.tasks === 1 && probe.fromMirror.marks === 1 && probe.fromMirror.journal === true,
+    JSON.stringify(probe.fromMirror));
+  check("load errors surface as an actionable message", probe.loadThrew === true);
+
+  // Remove the probe account's mirror so it can't leak into anything else.
+  await page.evaluate(() => {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith("studybuddy-workspace-mirror:")) localStorage.removeItem(k);
+    }
+  });
+
   const realErrors = pageErrors.filter(e => !/supabase|Failed to fetch|network|abort/i.test(e));
   check("no unexpected page errors", realErrors.length === 0, realErrors.join(" | "));
 

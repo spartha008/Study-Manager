@@ -195,7 +195,7 @@ const supabaseClient = IS_CONFIGURED
 
 // Shown on the loading/login screens so it's always obvious which build is
 // actually running in the browser (rules out stale-cache confusion).
-const APP_BUILD = "build 2026-10-21a";
+const APP_BUILD = "build 2026-10-21b";
 
 /**
  * RemoteStore - reads/writes the signed-in user's single workspace row in
@@ -465,7 +465,14 @@ class StudyBuddyApp {
 
     let saved = null;
     try {
-      saved = await RemoteStore.load(this.user.id);
+      // RemoteStore.load resolves to the raw Supabase response
+      // { data: row | null, error } — and the row itself is { data: <jsonb> }.
+      // Both levels have to come off here; reading `saved.tasks` off the raw
+      // response always yields `undefined`, which silently boots an EMPTY
+      // workspace on every reload (that's how saved data looks "lost").
+      const response = await RemoteStore.load(this.user.id);
+      if (response && response.error) throw response.error;
+      saved = (response && response.data && response.data.data) || null;
     } catch (e) {
       // Don't silently degrade: entering the app with sample data could
       // overwrite the real cloud workspace on the next save. Surface a clear,
@@ -477,36 +484,38 @@ class StudyBuddyApp {
     }
 
     if (saved && typeof saved === "object") {
-      this.tasks = Array.isArray(saved.tasks) ? saved.tasks : [];
-      this.timetable = Array.isArray(saved.timetable) ? saved.timetable : [];
-      this.notes = Array.isArray(saved.notes) ? saved.notes : [];
-      this.events = Array.isArray(saved.events) ? saved.events : [];
-      this.marks = Array.isArray(saved.marks) ? saved.marks : [];
-      this.journalBlob = (saved.journal && typeof saved.journal === "object") ? saved.journal : null;
-      this.focusMinutes = Number(saved.focusMinutes) || 0;
-      this.pomodoroSessions = Number(saved.pomodoroSessions) || 0;
-      this.activeDates = Array.isArray(saved.activeDates) ? saved.activeDates : [];
+      this.applyWorkspaceState(saved);
 
       // One-time cleanup: accounts that signed up while the app still shipped
       // with sample data had that demo content saved into their workspace.
       // Strip it so everyone starts (and stays) with their own real content.
       if (this.removeDemoContent()) this.persist();
+
+      // Keep the device-level mirror in step with the known-good cloud copy.
+      this.writeWorkspaceMirror(this.workspaceSnapshot());
     } else {
-      // First sign-in on this account: start with a clean, empty workspace.
-      this.tasks = [];
-      this.timetable = [];
-      this.notes = [];
-      this.events = [];
-      this.marks = [];
-      this.journalBlob = null;
-      this.focusMinutes = 0;
-      this.pomodoroSessions = 0;
-      this.activeDates = [];
-      this.persist();
+      // The cloud has no row for this account. Usually that's a first sign-in,
+      // but it also happens when older builds failed to get saves into the
+      // cloud. The per-account device mirror — if this browser has one — is
+      // strictly newer than "nothing", so restore it and push it back up.
+      const mirror = this.readWorkspaceMirror();
+      if (mirror) {
+        this.applyWorkspaceState(mirror);
+        this.persist();
+        this.showToast("Restored your last saved workspace from this device", "success");
+      } else {
+        // First sign-in on this account: start with a clean, empty workspace.
+        this.applyWorkspaceState({});
+        this.persist();
+      }
     }
     AuthGate.showLoading("Starting StudyBuddy…");
     this.backfillActivityFromData();
     this.init();
+    // The constructor already ran init() (it's a no-op via the _initialized
+    // guard), so paint the loaded workspace explicitly — otherwise the app
+    // can come up still showing the empty state it booted with.
+    this.renderAll();
   }
 
   /**
@@ -561,7 +570,25 @@ class StudyBuddyApp {
   async persist() {
     if (!this.user) return;
     clearTimeout(this._persistTimer);
-    const state = {
+    const state = this.workspaceSnapshot();
+
+    // Refresh the device-level safety net first, so even if this cloud write
+    // fails right now the data can still be recovered on the next sign-in.
+    this.writeWorkspaceMirror(state);
+
+    const res = await RemoteStore.save(this.user.id, state).catch(e => ({ error: e }));
+    if (res && res.error) {
+      // supabase-js never throws for PostgREST failures — it resolves with
+      // `{ error }`. Ignoring that used to make failed saves completely
+      // silent, which is one way data "disappeared" between reloads.
+      console.error("Cloud save failed:", res.error);
+      this.showToast("Couldn't sync your latest changes to the cloud", "alert");
+    }
+  }
+
+  // The single JSON shape shared by the cloud row and the device mirror.
+  workspaceSnapshot() {
+    return {
       tasks: this.tasks,
       timetable: this.timetable,
       notes: this.notes,
@@ -572,11 +599,54 @@ class StudyBuddyApp {
       pomodoroSessions: this.pomodoroSessions,
       activeDates: this.activeDates
     };
+  }
+
+  // Applies a saved workspace object (cloud jsonb or device mirror) onto the
+  // in-memory state, defaulting anything missing to a clean value.
+  applyWorkspaceState(saved) {
+    const s = (saved && typeof saved === "object" && !Array.isArray(saved)) ? saved : {};
+    this.tasks = Array.isArray(s.tasks) ? s.tasks : [];
+    this.timetable = Array.isArray(s.timetable) ? s.timetable : [];
+    this.notes = Array.isArray(s.notes) ? s.notes : [];
+    this.events = Array.isArray(s.events) ? s.events : [];
+    this.marks = Array.isArray(s.marks) ? s.marks : [];
+    this.journalBlob = (s.journal && typeof s.journal === "object") ? s.journal : null;
+    this.focusMinutes = Number(s.focusMinutes) || 0;
+    this.pomodoroSessions = Number(s.pomodoroSessions) || 0;
+    this.activeDates = Array.isArray(s.activeDates) ? s.activeDates : [];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Device-level safety net: a per-account copy of the last state we tried to
+  // save, kept in localStorage. If a cloud load ever comes back empty while
+  // this browser has saved this account's data before, startSession() restores
+  // from here instead of wiping the workspace on screen.
+  // Keyed by user id so a different Google account on the same browser can
+  // never read another account's mirror.
+  // ---------------------------------------------------------------------------
+  workspaceMirrorKey() {
+    return `studybuddy-workspace-mirror:${this.user && this.user.id}`;
+  }
+
+  writeWorkspaceMirror(state) {
+    if (!this.user) return;
     try {
-      await RemoteStore.save(this.user.id, state);
+      localStorage.setItem(this.workspaceMirrorKey(), JSON.stringify(state));
     } catch (e) {
-      console.error("Cloud save failed:", e);
-      this.showToast("Couldn't sync your latest changes to the cloud", "alert");
+      // Storage full / private mode — the mirror is best-effort only.
+    }
+  }
+
+  readWorkspaceMirror() {
+    if (!this.user) return null;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(this.workspaceMirrorKey()) || "null");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+      const looksLikeWorkspace = Array.isArray(parsed.tasks) || Array.isArray(parsed.timetable) ||
+        Array.isArray(parsed.notes) || Array.isArray(parsed.marks) || Boolean(parsed.journal);
+      return looksLikeWorkspace ? parsed : null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -2091,8 +2161,8 @@ class StudyBuddyApp {
 
   // Populate dynamic subjects into filter & modal datalists
   updateSubjectDropdowns() {
-    const taskSubjects = [...new Set(this.tasks.map(t => t.subject.trim()))];
-    const noteSubjects = [...new Set(this.notes.map(n => n.subject.trim()))];
+    const taskSubjects = [...new Set(this.tasks.map(t => (t.subject || "").trim()))];
+    const noteSubjects = [...new Set(this.notes.map(n => (n.subject || "").trim()))];
     const eventSubjects = [...new Set(this.events.map(e => (e.subject || "").trim()))];
     const markSubjects = [...new Set(this.marks.map(m => (m.subject || "").trim()))];
     const allSubjects = [...new Set([...taskSubjects, ...noteSubjects, ...eventSubjects, ...markSubjects])].filter(Boolean).sort();
