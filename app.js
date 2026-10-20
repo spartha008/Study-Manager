@@ -1855,7 +1855,7 @@ const AuthGate = {
     this.loading?.classList.remove("hidden");
   },
 
-  hideLoading() { this.loading?.classList.remove("hidden"); },
+  hideLoading() { this.loading?.classList.add("hidden"); },
 
   showError(message) {
     if (!this.errorBox) return;
