@@ -5,3 +5,6 @@ Thumbs.db
 # Logs & Temporary files
 *.log
 scratch/
+
+# Test tooling (see tools-test-journal.js)
+node_modules/

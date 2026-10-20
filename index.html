@@ -145,6 +145,11 @@
           <i class="fa-solid fa-book-open"></i>
           <span>Notes & Ideas</span>
         </button>
+        <button class="nav-item" data-tab="journal">
+          <i class="fa-solid fa-feather-pointed"></i>
+          <span>Journal</span>
+          <span class="journal-nav-lock" id="journal-nav-lock" title="Password protected"><i class="fa-solid fa-lock"></i></span>
+        </button>
         <button class="nav-item" data-tab="progress">
           <i class="fa-solid fa-chart-line"></i>
           <span>Progress & Timer</span>
@@ -610,6 +615,217 @@
           <button class="btn btn-primary mt-3" id="empty-state-add-note-btn">
             <i class="fa-solid fa-plus"></i> Create Note
           </button>
+        </div>
+      </section>
+
+      <!-- TAB: PRIVATE JOURNAL -->
+      <section class="tab-pane" id="tab-journal">
+        <!-- LOCKED STATE: shown every time the journal is opened -->
+        <div class="journal-lock card" id="journal-lock">
+          <div class="journal-lock-inner">
+            <div class="journal-lock-icon">
+              <i class="fa-solid fa-lock"></i>
+            </div>
+            <span class="journal-lock-tag">Private space</span>
+            <h2 id="journal-lock-title">Your journal is locked</h2>
+            <p class="journal-lock-subtitle" id="journal-lock-subtitle">
+              Enter your journal password to step inside. This space is yours alone.
+            </p>
+
+            <form id="journal-lock-form" class="journal-lock-form">
+              <div class="form-group">
+                <label for="journal-password-input" class="form-label" id="journal-password-label">Journal password</label>
+                <input type="password" id="journal-password-input" class="form-input" placeholder="Enter your journal password" autocomplete="current-password" required minlength="6">
+              </div>
+
+              <div class="form-group hidden" id="journal-confirm-group">
+                <label for="journal-password-confirm" class="form-label">Confirm password</label>
+                <input type="password" id="journal-password-confirm" class="form-input" placeholder="Repeat your journal password" autocomplete="new-password" minlength="6">
+              </div>
+
+              <button type="button" class="journal-lock-link hidden" id="journal-forgot-btn">
+                <i class="fa-solid fa-key"></i> Forgot your password?
+              </button>
+
+              <!-- Security question: created with the journal, asked again on a password reset -->
+              <div class="journal-question-block hidden" id="journal-question-block">
+                <div id="journal-question-pick">
+                  <div class="form-group">
+                    <label for="journal-question-select" class="form-label">Security question *</label>
+                    <select id="journal-question-select" class="form-select">
+                      <option value="">Choose a question…</option>
+                      <option>What city were you born in?</option>
+                      <option>What was the name of your first pet?</option>
+                      <option>What is your mother's maiden name?</option>
+                      <option>What was your childhood nickname?</option>
+                      <option>What street did you grow up on?</option>
+                      <option>What school did you attend in 6th grade?</option>
+                      <option value="__custom">Write my own question…</option>
+                    </select>
+                    <input type="text" id="journal-question-custom" class="form-input journal-question-custom hidden" placeholder="Type your own question…" maxlength="140">
+                  </div>
+                </div>
+
+                <p class="journal-question-shown hidden" id="journal-question-display"></p>
+
+                <div class="form-group">
+                  <label for="journal-answer-input" class="form-label" id="journal-answer-label">Answer *</label>
+                  <input type="password" id="journal-answer-input" class="form-input" placeholder="An answer only you would know" autocomplete="off" minlength="3">
+                </div>
+
+                <div class="form-group" id="journal-answer-confirm-group">
+                  <label for="journal-answer-confirm" class="form-label">Confirm answer *</label>
+                  <input type="password" id="journal-answer-confirm" class="form-input" placeholder="Repeat your answer" autocomplete="off" minlength="3">
+                </div>
+
+                <p class="journal-question-hint">
+                  <i class="fa-solid fa-triangle-exclamation"></i>
+                  Anyone who knows this answer can unlock your journal — keep it to yourself.
+                </p>
+              </div>
+
+              <p class="journal-lock-error hidden" id="journal-lock-error"></p>
+
+              <button type="submit" class="btn btn-primary btn-lg journal-lock-submit" id="journal-lock-submit">
+                <i class="fa-solid fa-unlock-keyhole"></i> <span id="journal-lock-submit-label">Unlock Journal</span>
+              </button>
+            </form>
+
+            <label class="journal-keep-row" id="journal-keep-row">
+              <input type="checkbox" id="journal-keep-unlocked-input">
+              <span>Keep unlocked while I browse the app</span>
+            </label>
+
+            <div class="journal-lock-actions">
+              <button type="button" class="btn btn-sm btn-ghost" id="journal-lock-restore-btn">
+                <i class="fa-solid fa-file-import"></i> Restore from a backup file
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost hidden" id="journal-restore-cancel-btn">
+                <i class="fa-solid fa-xmark"></i> <span id="journal-back-btn-label">Cancel restore</span>
+              </button>
+            </div>
+
+            <div class="journal-lock-note">
+              <i class="fa-solid fa-shield-halved"></i>
+              <span>
+                Your words are encrypted <strong>in this browser</strong> with your password before they
+                ever leave the device — nobody else can read them. They still sync to your account, so a
+                lost laptop can never take your journal with it.
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- UNLOCKED STATE -->
+        <div class="hidden" id="journal-view">
+          <div class="section-header">
+            <div>
+              <h2>My Journal</h2>
+              <p class="subtitle">One page a day for your life — encrypted, private, and backed up.</p>
+            </div>
+            <div class="journal-toolbar">
+              <span class="badge badge-success" id="journal-streak-badge"><i class="fa-solid fa-fire"></i> 0 day streak</span>
+              <span class="badge badge-primary" id="journal-sync-badge" title="Encrypted journal is stored in your account"><i class="fa-solid fa-cloud-arrow-up"></i> Backed up</span>
+              <button id="journal-restore-btn" class="btn btn-sm btn-ghost" title="Restore the journal from a downloaded backup file">
+                <i class="fa-solid fa-file-import"></i> Restore
+              </button>
+              <button id="journal-export-btn" class="btn btn-sm btn-outline" title="Download an encrypted copy to keep in Google Drive">
+                <i class="fa-solid fa-download"></i> Backup file
+              </button>
+              <button id="journal-set-question-btn" class="btn btn-sm btn-ghost hidden" title="Pick a question that can reset a forgotten password">
+                <i class="fa-solid fa-circle-question"></i> <span id="journal-set-question-label">Set recovery question</span>
+              </button>
+              <button id="journal-change-pass-btn" class="btn btn-sm btn-ghost">
+                <i class="fa-solid fa-key"></i> Change password
+              </button>
+              <button id="journal-lock-btn" class="btn btn-sm btn-primary">
+                <i class="fa-solid fa-lock"></i> Lock now
+              </button>
+            </div>
+          </div>
+
+          <div class="journal-layout">
+            <!-- Past entries -->
+            <aside class="card journal-list-card">
+              <div class="journal-list-header">
+                <div class="search-input-wrapper">
+                  <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                  <input type="text" id="journal-search-input" class="form-input" placeholder="Search your memories...">
+                </div>
+                <button id="journal-today-btn" class="btn btn-sm btn-primary">
+                  <i class="fa-solid fa-pen-nib"></i> Today
+                </button>
+              </div>
+
+              <div class="journal-entries-list" id="journal-entries-list">
+                <!-- Dynamically injected past entries -->
+              </div>
+
+              <div class="empty-state journal-list-empty hidden" id="journal-list-empty-state">
+                <div class="empty-icon"><i class="fa-solid fa-feather-pointed"></i></div>
+                <h3 id="journal-empty-title">Your story starts today</h3>
+                <p id="journal-empty-text">Write your first entry — even two sentences count as showing up for yourself.</p>
+              </div>
+
+              <div class="journal-list-footer">
+                <span id="journal-count-label">0 entries</span>
+                <span class="text-muted"><i class="fa-solid fa-lock"></i> Encrypted</span>
+              </div>
+            </aside>
+
+            <!-- Editor -->
+            <div class="card journal-editor-card">
+              <div class="journal-editor-header">
+                <div class="journal-date-nav">
+                  <button class="icon-btn" id="journal-prev-day-btn" aria-label="Previous day">
+                    <i class="fa-solid fa-chevron-left"></i>
+                  </button>
+                  <div class="journal-date-block">
+                    <h3 id="journal-entry-date">Today</h3>
+                    <span class="text-sm text-muted" id="journal-entry-relative">—</span>
+                  </div>
+                  <button class="icon-btn" id="journal-next-day-btn" aria-label="Next day">
+                    <i class="fa-solid fa-chevron-right"></i>
+                  </button>
+                  <input type="date" id="journal-date-picker" class="form-input journal-date-picker" aria-label="Jump to a date" title="Jump to a date">
+                </div>
+                <button class="btn-icon-action delete" id="journal-delete-btn" title="Delete this entry">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+
+              <div class="journal-mood-row">
+                <span class="journal-mood-label">How was your day?</span>
+                <div class="journal-mood-buttons" id="journal-mood-buttons">
+                  <button type="button" class="journal-mood-btn" data-mood="0" title="Rough"><span>😞</span><small>Rough</small></button>
+                  <button type="button" class="journal-mood-btn" data-mood="1" title="Low"><span>😕</span><small>Low</small></button>
+                  <button type="button" class="journal-mood-btn" data-mood="2" title="Okay"><span>😐</span><small>Okay</small></button>
+                  <button type="button" class="journal-mood-btn" data-mood="3" title="Good"><span>🙂</span><small>Good</small></button>
+                  <button type="button" class="journal-mood-btn" data-mood="4" title="Great"><span>🤩</span><small>Great</small></button>
+                </div>
+              </div>
+
+              <div class="journal-prompt">
+                <i class="fa-regular fa-lightbulb text-primary"></i>
+                <span id="journal-prompt-text">What made today feel like yours?</span>
+                <button type="button" class="btn btn-sm btn-ghost" id="journal-prompt-refresh-btn">Another</button>
+              </div>
+
+              <input type="text" id="journal-title-input" class="form-input journal-title-input" placeholder="Give this day a title…" maxlength="120">
+
+              <textarea id="journal-body-input" class="form-textarea journal-body-input" rows="12" placeholder="What happened today? What are you carrying? What would you tell tomorrow-you about this day?"></textarea>
+
+              <div class="journal-editor-footer">
+                <span class="journal-editor-stats">
+                  <span id="journal-word-count">0 words</span>
+                  <span class="journal-save-state" id="journal-save-state"><i class="fa-solid fa-cloud-arrow-up"></i> Saved &amp; encrypted</span>
+                </span>
+                <button class="btn btn-primary" id="journal-save-btn">
+                  <i class="fa-solid fa-check"></i> Save entry
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1193,6 +1409,100 @@
       </form>
     </div>
   </div>
+
+  <!-- MODAL: CHANGE JOURNAL PASSWORD -->
+  <div class="modal-backdrop" id="journal-password-modal" role="dialog" aria-modal="true" aria-labelledby="journal-password-modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="journal-password-modal-title">Change Journal Password</h3>
+        <button class="modal-close-btn" id="close-journal-password-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="journal-password-form">
+        <div class="form-group">
+          <label for="journal-current-password" class="form-label">Current password *</label>
+          <input type="password" id="journal-current-password" class="form-input" autocomplete="current-password" required minlength="6">
+        </div>
+
+        <div class="form-group">
+          <label for="journal-new-password" class="form-label">New password *</label>
+          <input type="password" id="journal-new-password" class="form-input" placeholder="At least 6 characters" autocomplete="new-password" required minlength="6">
+        </div>
+
+        <div class="form-group">
+          <label for="journal-new-password-confirm" class="form-label">Confirm new password *</label>
+          <input type="password" id="journal-new-password-confirm" class="form-input" placeholder="Repeat the new password" autocomplete="new-password" required minlength="6">
+        </div>
+
+        <p class="form-hint">
+          <i class="fa-solid fa-shield-halved"></i> Your entries are re-encrypted with the new password.
+          Backups made with the old password will stop working — download a fresh one afterwards.
+        </p>
+
+        <p class="journal-lock-error hidden" id="journal-password-modal-error"></p>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-journal-password-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-journal-password-btn">Update Password</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: SET / CHANGE THE JOURNAL RECOVERY QUESTION -->
+  <div class="modal-backdrop" id="journal-question-modal" role="dialog" aria-modal="true" aria-labelledby="journal-question-modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="journal-question-modal-title">Journal Recovery Question</h3>
+        <button class="modal-close-btn" id="close-journal-question-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="journal-question-form">
+        <p class="form-hint">
+          <i class="fa-solid fa-shield-halved"></i> This is the only way back into your journal if you forget
+          your password — nobody can reset it for you. Pick an answer nobody else would guess.
+        </p>
+
+        <div class="form-group">
+          <label for="jq-question-select" class="form-label">Security question *</label>
+          <select id="jq-question-select" class="form-select">
+            <option value="">Choose a question…</option>
+            <option>What city were you born in?</option>
+            <option>What was the name of your first pet?</option>
+            <option>What is your mother's maiden name?</option>
+            <option>What was your childhood nickname?</option>
+            <option>What street did you grow up on?</option>
+            <option>What school did you attend in 6th grade?</option>
+            <option value="__custom">Write my own question…</option>
+          </select>
+          <input type="text" id="jq-question-custom" class="form-input journal-question-custom hidden" placeholder="Type your own question…" maxlength="140">
+        </div>
+
+        <div class="form-group">
+          <label for="jq-answer" class="form-label">Answer *</label>
+          <input type="password" id="jq-answer" class="form-input" placeholder="An answer only you would know" autocomplete="off" minlength="3">
+        </div>
+
+        <div class="form-group">
+          <label for="jq-answer-confirm" class="form-label">Confirm answer *</label>
+          <input type="password" id="jq-answer-confirm" class="form-input" placeholder="Repeat your answer" autocomplete="off" minlength="3">
+        </div>
+
+        <p class="journal-question-hint">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          Anyone who knows this answer can unlock your journal — keep it to yourself.
+        </p>
+
+        <p class="journal-lock-error hidden" id="jq-error"></p>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-journal-question-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-journal-question-btn">Save Question</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Hidden picker used to restore the journal from a downloaded backup file -->
+  <input type="file" id="journal-backup-file-input" accept=".json,application/json" class="hidden">
 
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toast-container"></div>

@@ -195,7 +195,7 @@ const supabaseClient = IS_CONFIGURED
 
 // Shown on the loading/login screens so it's always obvious which build is
 // actually running in the browser (rules out stale-cache confusion).
-const APP_BUILD = "build 2026-10-20d";
+const APP_BUILD = "build 2026-10-21a";
 
 /**
  * RemoteStore - reads/writes the signed-in user's single workspace row in
@@ -363,6 +363,24 @@ class StudyBuddyApp {
     this.notes = [];
     this.events = [];
     this.marks = [];
+
+    // Private journal. `journalEntries` only ever lives in memory and only
+    // while unlocked; `journalBlob` is the encrypted, cloud-synced form of it.
+    this.journalBlob = null;          // { v:2, data:{iv,data}, pw:{salt,verifier,iv,key}, recovery?, updatedAt }
+    this.journalEntries = [];
+    this.journalKey = null;           // AES-GCM data key that seals the entries while unlocked
+    this.journalUnlocked = false;
+    this.journalSelectedDate = this.toDateKey(new Date());
+    this.journalSearch = "";
+    this.journalDirty = false;
+    this.journalPendingImport = null; // backup file waiting to be restored
+    this.journalResetMode = false;    // lock card is asking the recovery question
+    this.journalPromptOffset = 0;
+    this._journalSaveTimer = null;
+    this._journalMood = null;
+    this._journalEditorDate = null;
+    this._journalLockMode = null;
+
     this.focusMinutes = 0;
     this.pomodoroSessions = 0;
     this.activeDates = [];
@@ -422,6 +440,7 @@ class StudyBuddyApp {
     this.setupNoteEvents();
     this.setupCalendarEvents();
     this.setupMarkEvents();
+    this.setupJournalEvents();
     this.setupPomodoroEvents();
     this.setupQuotes();
     this.setupTheme();
@@ -463,6 +482,7 @@ class StudyBuddyApp {
       this.notes = Array.isArray(saved.notes) ? saved.notes : [];
       this.events = Array.isArray(saved.events) ? saved.events : [];
       this.marks = Array.isArray(saved.marks) ? saved.marks : [];
+      this.journalBlob = (saved.journal && typeof saved.journal === "object") ? saved.journal : null;
       this.focusMinutes = Number(saved.focusMinutes) || 0;
       this.pomodoroSessions = Number(saved.pomodoroSessions) || 0;
       this.activeDates = Array.isArray(saved.activeDates) ? saved.activeDates : [];
@@ -478,6 +498,7 @@ class StudyBuddyApp {
       this.notes = [];
       this.events = [];
       this.marks = [];
+      this.journalBlob = null;
       this.focusMinutes = 0;
       this.pomodoroSessions = 0;
       this.activeDates = [];
@@ -546,6 +567,7 @@ class StudyBuddyApp {
       notes: this.notes,
       events: this.events,
       marks: this.marks,
+      journal: this.journalBlob,
       focusMinutes: this.focusMinutes,
       pomodoroSessions: this.pomodoroSessions,
       activeDates: this.activeDates
@@ -623,12 +645,14 @@ class StudyBuddyApp {
     const clearBtn = document.getElementById("clear-all-data-btn");
     if (clearBtn) {
       clearBtn.addEventListener("click", () => {
-        if (confirm("Clear your entire workspace? This permanently deletes all your assignments, study slots, notes, events and marks.")) {
+        if (confirm("Clear your entire workspace? This permanently deletes all your assignments, study slots, notes, events, marks — and your private journal, including every saved entry.")) {
+          this.lockJournal({ skipSave: true });
           this.tasks = [];
           this.timetable = [];
           this.notes = [];
           this.events = [];
           this.marks = [];
+          this.journalBlob = null;
           this.focusMinutes = 0;
           this.pomodoroSessions = 0;
           this.activeDates = [];
@@ -693,6 +717,12 @@ class StudyBuddyApp {
     // Close mobile drawer if open
     document.getElementById("sidebar")?.classList.remove("open");
     document.getElementById("sidebar-overlay")?.classList.remove("active");
+
+    // The journal is a private space: leaving it re-locks it, so opening the
+    // tab again always asks for the password (unless the user opted out).
+    if (tabId !== "journal" && this.journalUnlocked && !this.isJournalKeepUnlocked()) {
+      this.lockJournal();
+    }
 
     // Scroll to top
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -778,6 +808,23 @@ class StudyBuddyApp {
       if (e.key === "Escape") {
         document.querySelectorAll(".modal-backdrop.active").forEach(m => this.closeModal(m));
       }
+    });
+
+    // Change Journal Password Modal
+    const journalPasswordModal = document.getElementById("journal-password-modal");
+    document.getElementById("journal-change-pass-btn")?.addEventListener("click", () => this.openJournalPasswordModal());
+    document.getElementById("close-journal-password-modal-btn")?.addEventListener("click", () => this.closeModal(journalPasswordModal));
+    document.getElementById("cancel-journal-password-btn")?.addEventListener("click", () => this.closeModal(journalPasswordModal));
+    journalPasswordModal?.addEventListener("click", (e) => {
+      if (e.target === journalPasswordModal) this.closeModal(journalPasswordModal);
+    });
+
+    // Recovery Question Modal
+    const journalQuestionModal = document.getElementById("journal-question-modal");
+    document.getElementById("close-journal-question-modal-btn")?.addEventListener("click", () => this.closeModal(journalQuestionModal));
+    document.getElementById("cancel-journal-question-btn")?.addEventListener("click", () => this.closeModal(journalQuestionModal));
+    journalQuestionModal?.addEventListener("click", (e) => {
+      if (e.target === journalQuestionModal) this.closeModal(journalQuestionModal);
     });
   }
 
@@ -2037,6 +2084,7 @@ class StudyBuddyApp {
     this.renderTimetable();
     this.renderNotes();
     this.renderMarks();
+    this.renderJournal();
     this.renderStreak();
     this.renderProgressStats();
   }
@@ -2922,7 +2970,1152 @@ class StudyBuddyApp {
   }
 
   // ===========================================================================
-  // 11. Helper Utilities
+  // 11. Private Journal — password-gated, end-to-end encrypted daily pages
+  // ===========================================================================
+  /**
+   * The journal never stores readable text outside the browser. Entries are
+   * sealed with a random AES-GCM data key, and that key is wrapped twice:
+   * once under a key derived from the journal password (PBKDF2, 150k
+   * iterations) and once under the normalized recovery answer — so a forgotten
+   * password can be reset without anyone re-encrypting every page. Only the
+   * ciphertext — `this.journalBlob` — is synced to the user's Supabase row or
+   * written into a downloaded backup file. Neither secret is ever stored;
+   * verifier hashes tell a wrong secret apart from a damaged file.
+   */
+
+  // --- Crypto primitives ----------------------------------------------------
+  journalBytesToB64(bytes) {
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+    }
+    return btoa(binary);
+  }
+
+  journalB64ToBytes(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  /** PBKDF2(password, salt) -> AES-GCM key + a verifier used to spot typos. */
+  async journalDerive(password, saltBytes) {
+    const encoder = new TextEncoder();
+    const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+    const bits = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt: saltBytes, iterations: 150000, hash: "SHA-256" },
+      baseKey,
+      256
+    ));
+    const label = encoder.encode("studybuddy-journal-v1");
+    const material = new Uint8Array(bits.length + label.length);
+    material.set(bits, 0);
+    material.set(label, bits.length);
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", material));
+    const key = await crypto.subtle.importKey("raw", bits, "AES-GCM", false, ["encrypt", "decrypt"]);
+    return { key, verifier: this.journalBytesToB64(digest) };
+  }
+
+  /** Encrypts the entries array with an existing key (no password needed). */
+  async journalSeal(entries, key) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const payload = new TextEncoder().encode(JSON.stringify(entries));
+    const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, payload);
+    return { iv: this.journalBytesToB64(iv), data: this.journalBytesToB64(new Uint8Array(data)) };
+  }
+
+  async journalUnseal(blob, key) {
+    const plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: this.journalB64ToBytes(blob.iv) },
+      key,
+      this.journalB64ToBytes(blob.data)
+    );
+    const parsed = JSON.parse(new TextDecoder().decode(plain));
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(e => e && typeof e.date === "string")
+      .map(e => ({
+        id: String(e.id || `jr-${e.date}`),
+        date: e.date,
+        mood: typeof e.mood === "number" ? e.mood : null,
+        title: String(e.title || ""),
+        body: String(e.body || ""),
+        createdAt: e.createdAt || e.date,
+        updatedAt: e.updatedAt || e.createdAt || e.date
+      }));
+  }
+
+  /**
+   * Normalizes a recovery answer so "  New York " and "new york" unlock alike
+   * (case, surrounding spaces and double spaces never hide a real answer).
+   */
+  journalNormalizeAnswer(answer) {
+    return String(answer || "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  /** Fresh random 256-bit data key — the entries are sealed with this, not with the password directly. */
+  async journalMakeDataKey() {
+    const raw = crypto.getRandomValues(new Uint8Array(32));
+    return crypto.subtle.importKey("raw", raw, "AES-GCM", true, ["encrypt", "decrypt"]);
+  }
+
+  /**
+   * Wraps (encrypts) the data key under a secret — the journal password or the
+   * normalized recovery answer. Each secret gets its own salt + verifier, so
+   * either one alone can hand back the same data key.
+   */
+  async journalWrapKey(dataKey, secret) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const { key: wrapKey, verifier } = await this.journalDerive(secret, salt);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const raw = await crypto.subtle.exportKey("raw", dataKey);
+    const wrapped = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, wrapKey, raw);
+    return {
+      salt: this.journalBytesToB64(salt),
+      verifier,
+      iv: this.journalBytesToB64(iv),
+      key: this.journalBytesToB64(new Uint8Array(wrapped))
+    };
+  }
+
+  /** Unwraps the data key with a secret. Throws an Error with a `.code`. */
+  async journalUnwrapKey(wrapper, secret, failCode = "wrong-password") {
+    const fail = (code, message) => {
+      const err = new Error(message);
+      err.code = code;
+      return err;
+    };
+    const wrongSecret = failCode === "wrong-answer"
+      ? "That answer doesn't match this journal."
+      : "That's not the password for this journal.";
+    if (!wrapper || typeof wrapper.salt !== "string" || typeof wrapper.iv !== "string" || typeof wrapper.key !== "string") {
+      throw fail("invalid-file", "This journal is missing its lock data.");
+    }
+
+    let wrapKey, verifier;
+    try {
+      ({ key: wrapKey, verifier } = await this.journalDerive(secret, this.journalB64ToBytes(wrapper.salt)));
+    } catch (e) {
+      throw fail("invalid-file", "The journal's lock data couldn't be read.");
+    }
+    if (wrapper.verifier && verifier !== wrapper.verifier) {
+      throw fail(failCode, wrongSecret);
+    }
+
+    let raw;
+    try {
+      raw = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: this.journalB64ToBytes(wrapper.iv) },
+        wrapKey,
+        this.journalB64ToBytes(wrapper.key)
+      );
+    } catch (e) {
+      throw fail(failCode, wrongSecret);
+    }
+    return crypto.subtle.importKey("raw", raw, "AES-GCM", true, ["encrypt", "decrypt"]);
+  }
+
+  /**
+   * First-time creation: a fresh data key seals the entries, then gets wrapped
+   * under the password — and, when a security question is given, under the
+   * recovery answer too, so a forgotten password can be reset later.
+   */
+  async journalCreate(entries, password, { question = "", answer = "" } = {}) {
+    const dataKey = await this.journalMakeDataKey();
+    const sealed = await this.journalSeal(entries, dataKey);
+    const pw = await this.journalWrapKey(dataKey, password);
+    const recovery = (question && answer)
+      ? { question: String(question).trim(), ...await this.journalWrapKey(dataKey, this.journalNormalizeAnswer(answer)) }
+      : undefined;
+    return {
+      key: dataKey,
+      blob: {
+        v: 2,
+        data: sealed,
+        pw,
+        recovery,
+        updatedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Unlocks a blob with the journal password. Wrapped-key (v2) blobs hand back
+   * the data key; old (v1) blobs are re-wrapped into the current format on the
+   * way out and the upgraded blob is returned so the caller can persist it.
+   * Throws an Error with a `.code`.
+   */
+  async journalUnlock(blob, password) {
+    const fail = (code, message) => {
+      const err = new Error(message);
+      err.code = code;
+      return err;
+    };
+    const isWrapped = blob && blob.v === 2 && blob.data && typeof blob.data === "object";
+    const valid = isWrapped
+      ? typeof blob.pw?.salt === "string" && typeof blob.pw?.iv === "string" && typeof blob.pw?.key === "string"
+      : typeof blob?.salt === "string" && typeof blob?.iv === "string" && typeof blob?.data === "string";
+    if (!valid) {
+      throw fail("invalid-file", "This isn't a valid StudyBuddy journal backup.");
+    }
+
+    if (isWrapped) {
+      const dataKey = await this.journalUnwrapKey(blob.pw, password, "wrong-password");
+      let entries;
+      try {
+        entries = await this.journalUnseal(blob.data, dataKey);
+      } catch (e) {
+        throw fail("corrupt", "The journal couldn't be decrypted — the backup file looks damaged.");
+      }
+      return { key: dataKey, entries };
+    }
+
+    // --- Legacy v1 blob: entries sealed directly under the password key ---
+    let key, verifier;
+    try {
+      ({ key, verifier } = await this.journalDerive(password, this.journalB64ToBytes(blob.salt)));
+    } catch (e) {
+      throw fail("invalid-file", "The backup file couldn't be read.");
+    }
+
+    if (blob.verifier && verifier !== blob.verifier) {
+      throw fail("wrong-password", "That's not the password for this journal.");
+    }
+
+    let entries;
+    try {
+      entries = await this.journalUnseal(blob, key);
+    } catch (e) {
+      throw fail("corrupt", "The journal couldn't be decrypted — the backup file looks damaged.");
+    }
+    const upgraded = await this.journalCreate(entries, password);
+    return { key: upgraded.key, entries, blob: upgraded.blob };
+  }
+
+  /**
+   * Password reset: prove knowledge of the recovery answer, get the data key
+   * back, then re-wrap that same key under a brand-new password. The entries
+   * (and the recovery wrapper itself) are never touched.
+   */
+  async journalResetPassword(blob, answer, newPassword) {
+    const dataKey = await this.journalUnwrapKey(blob?.recovery, this.journalNormalizeAnswer(answer), "wrong-answer");
+    let entries;
+    try {
+      entries = await this.journalUnseal(blob.data, dataKey);
+    } catch (e) {
+      const err = new Error("The journal couldn't be decrypted — the data looks damaged.");
+      err.code = "corrupt";
+      throw err;
+    }
+    const pw = await this.journalWrapKey(dataKey, newPassword);
+    return { key: dataKey, entries, blob: { ...blob, pw, updatedAt: new Date().toISOString() } };
+  }
+
+  // --- Lock / unlock lifecycle ---------------------------------------------
+  journalLockMode() {
+    if (this.journalPendingImport) return "restore";
+    if (this.journalResetMode && this.journalBlob?.recovery) return "reset";
+    this.journalResetMode = false;
+    return this.journalBlob ? "unlock" : "create";
+  }
+
+  isJournalKeepUnlocked() {
+    try {
+      return localStorage.getItem("studybuddy-journal-keep-unlocked") === "1";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  showJournalLockError(message) {
+    const box = document.getElementById("journal-lock-error");
+    if (!box) return;
+    box.textContent = message;
+    box.classList.remove("hidden");
+    const card = document.getElementById("journal-lock");
+    card?.classList.remove("shake");
+    void card?.offsetWidth; // restart the animation
+    card?.classList.add("shake");
+  }
+
+  clearJournalLockError() {
+    document.getElementById("journal-lock-error")?.classList.add("hidden");
+  }
+
+  async handleJournalLockSubmit(e) {
+    e.preventDefault();
+    const mode = this.journalLockMode();
+    const passwordInput = document.getElementById("journal-password-input");
+    const confirmInput = document.getElementById("journal-password-confirm");
+    const answerInput = document.getElementById("journal-answer-input");
+    const answerConfirmInput = document.getElementById("journal-answer-confirm");
+    const password = passwordInput?.value || "";
+    const confirm = confirmInput?.value || "";
+    const answer = answerInput?.value || "";
+    const answerConfirm = answerConfirmInput?.value || "";
+    const submitBtn = document.getElementById("journal-lock-submit");
+    const submitLabel = document.getElementById("journal-lock-submit-label");
+
+    this.clearJournalLockError();
+
+    if (password.length < 6) {
+      this.showJournalLockError("Use at least 6 characters — this password protects every page.");
+      return;
+    }
+
+    if ((mode === "create" || mode === "reset") && password !== confirm) {
+      this.showJournalLockError("The two passwords don't match yet.");
+      return;
+    }
+
+    if (mode === "create") {
+      if (!this.readJournalQuestion()) {
+        this.showJournalLockError("Pick a security question — it's your way back in if you ever forget the password.");
+        return;
+      }
+      if (answer.trim().length < 3) {
+        this.showJournalLockError("Use at least 3 characters for the security answer.");
+        return;
+      }
+      if (answer !== answerConfirm) {
+        this.showJournalLockError("The two answers don't match yet.");
+        return;
+      }
+    } else if (mode === "reset" && answer.trim().length < 3) {
+      this.showJournalLockError("Type the answer to your security question.");
+      return;
+    }
+
+    const workingLabel = mode === "create" ? "Sealing your journal…" : mode === "reset" ? "Resetting…" : "Decrypting…";
+    const idleLabel = mode === "create" ? "Create My Journal" : mode === "reset" ? "Reset & Unlock" : mode === "restore" ? "Restore & Unlock" : "Unlock Journal";
+    if (submitBtn) submitBtn.disabled = true;
+    if (submitLabel) submitLabel.textContent = workingLabel;
+
+    try {
+      if (mode === "create") {
+        const question = this.readJournalQuestion();
+        const { key, blob } = await this.journalCreate(this.journalEntries, password, { question, answer });
+        this.journalBlob = blob;
+        this.persist();
+        this.openJournalSession(key, this.journalEntries.slice());
+        this.showToast("Your private journal is ready — it locks itself when you leave", "success");
+      } else if (mode === "restore") {
+        const imported = this.journalPendingImport;
+        const result = await this.journalUnlock(imported, password);
+        this.journalBlob = result.blob || imported; // an old (v1) file is upgraded to the wrapped-key format
+        this.journalPendingImport = null;
+        this.persist();
+        this.openJournalSession(result.key, result.entries);
+        this.showToast(`Backup restored — ${result.entries.length} ${result.entries.length === 1 ? "entry" : "entries"} recovered`, "success");
+      } else if (mode === "reset") {
+        const result = await this.journalResetPassword(this.journalBlob, answer, password);
+        this.journalBlob = result.blob;
+        this.persist();
+        this.openJournalSession(result.key, result.entries);
+        this.showToast("Password reset — your journal is unlocked", "success");
+      } else {
+        const result = await this.journalUnlock(this.journalBlob, password);
+        if (result.blob) { // a v1 blob was just re-wrapped into the current format
+          this.journalBlob = result.blob;
+          this.persist();
+          if (!result.blob.recovery) {
+            this.showToast("Tip: set a recovery question so a forgotten password can be reset", "info");
+          }
+        }
+        this.openJournalSession(result.key, result.entries);
+      }
+    } catch (err) {
+      console.warn("[StudyBuddy] Journal unlock failed:", err);
+      this.showJournalLockError(err?.message || "Couldn't unlock the journal — try again.");
+    } finally {
+      if (passwordInput) passwordInput.value = "";
+      if (confirmInput) confirmInput.value = "";
+      if (answerInput) answerInput.value = "";
+      if (answerConfirmInput) answerConfirmInput.value = "";
+      if (submitBtn) submitBtn.disabled = false;
+      if (submitLabel) submitLabel.textContent = idleLabel;
+      if (mode === "reset") answerInput?.focus();
+      else passwordInput?.focus();
+    }
+  }
+
+  /** Enters the unlocked view: populates the editor for today. */
+  openJournalSession(key, entries) {
+    this.journalKey = key;
+    this.journalEntries = Array.isArray(entries) ? entries : [];
+    this.journalUnlocked = true;
+    this.journalDirty = false;
+    this.journalSearch = "";
+    this.journalPromptOffset = 0;
+    this.journalSelectedDate = this.toDateKey(new Date());
+    this.journalResetMode = false;
+    this._journalEditorDate = null;
+    this._journalMood = null;
+
+    const searchInput = document.getElementById("journal-search-input");
+    if (searchInput) searchInput.value = "";
+
+    this.renderJournal();
+    document.getElementById("journal-title-input")?.focus({ preventScroll: true });
+  }
+
+  /**
+   * Re-locks the journal. Unsaved words are encrypted and synced first (the
+   * crypto runs off the captured key/entries), so nothing typed is ever lost.
+   */
+  lockJournal({ skipSave = false } = {}) {
+    if (!this.journalUnlocked) return;
+    if (!skipSave && this.journalDirty) this.encryptAndSyncJournal();
+
+    this.journalUnlocked = false;
+    this.journalKey = null;
+    this.journalEntries = [];
+    this.journalDirty = false;
+    this.journalSearch = "";
+    this.journalResetMode = false;
+    this._journalMood = null;
+    this._journalEditorDate = null;
+    this.journalSelectedDate = this.toDateKey(new Date());
+
+    const titleInput = document.getElementById("journal-title-input");
+    const bodyInput = document.getElementById("journal-body-input");
+    const searchInput = document.getElementById("journal-search-input");
+    if (titleInput) titleInput.value = "";
+    if (bodyInput) bodyInput.value = "";
+    if (searchInput) searchInput.value = "";
+
+    this.clearJournalLockError();
+    this.renderJournal();
+  }
+
+  // --- Saving ---------------------------------------------------------------
+  markJournalDirty() {
+    if (!this.journalUnlocked) return;
+    this.journalDirty = true;
+    this.updateJournalSaveState(false);
+    clearTimeout(this._journalSaveTimer);
+    this._journalSaveTimer = setTimeout(() => this.saveJournalEntry(), 1500);
+  }
+
+  /** Re-encrypts the in-memory entries and pushes them to the cloud. */
+  async encryptAndSyncJournal() {
+    const key = this.journalKey;     // captured before any await on purpose
+    const entries = this.journalEntries;
+    const blob = this.journalBlob;
+    if (!key || !blob) return;
+
+    try {
+      const sealed = await this.journalSeal(entries, key);
+      // v2: the data key never changes, so the password/recovery wrappers stay valid.
+      this.journalBlob = (blob.v === 2 && blob.pw)
+        ? { ...blob, data: sealed, updatedAt: new Date().toISOString() }
+        : { v: 1, salt: blob.salt, verifier: blob.verifier, ...sealed, updatedAt: new Date().toISOString() };
+      this.updateJournalSaveState(true);
+      this.schedulePersist();
+    } catch (e) {
+      console.error("[StudyBuddy] Journal encryption failed:", e);
+      this.updateJournalSaveState(false);
+      this.showToast("Couldn't encrypt your journal just now", "alert");
+    }
+  }
+
+  async saveJournalEntry(announce = false) {
+    if (!this.journalUnlocked) return false;
+    clearTimeout(this._journalSaveTimer);
+
+    const date = this.journalSelectedDate;
+    const title = document.getElementById("journal-title-input")?.value.trim() || "";
+    const body = document.getElementById("journal-body-input")?.value.trim() || "";
+    const mood = typeof this._journalMood === "number" ? this._journalMood : null;
+    const index = this.journalEntries.findIndex(entry => entry.date === date);
+    const isEmpty = !title && !body && mood === null;
+
+    if (isEmpty) {
+      if (index !== -1) this.journalEntries.splice(index, 1);
+      else {
+        this.journalDirty = false;
+        return true; // nothing written and nothing stored — nothing to seal
+      }
+    } else if (index === -1) {
+      this.journalEntries.push({
+        id: `jr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        date,
+        mood,
+        title,
+        body,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    } else {
+      Object.assign(this.journalEntries[index], {
+        mood,
+        title,
+        body,
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    this.journalDirty = false;
+    await this.encryptAndSyncJournal();
+    this.renderJournalList();
+    this.renderJournalStats();
+    if (announce) this.showToast("Entry saved & encrypted", "success");
+    return true;
+  }
+
+  updateJournalSaveState(saved) {
+    const el = document.getElementById("journal-save-state");
+    if (!el) return;
+    if (saved) {
+      el.classList.remove("dirty");
+      el.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Saved &amp; encrypted';
+    } else {
+      el.classList.add("dirty");
+      el.innerHTML = '<i class="fa-solid fa-pen"></i> Unsaved changes';
+    }
+  }
+
+  updateJournalWordCount() {
+    const el = document.getElementById("journal-word-count");
+    const body = document.getElementById("journal-body-input")?.value || "";
+    if (!el) return;
+    const words = body.trim() ? body.trim().split(/\s+/).length : 0;
+    el.textContent = `${words} ${words === 1 ? "word" : "words"}`;
+  }
+
+  // --- Navigation & editor state --------------------------------------------
+  journalFormatDate(dateKey) {
+    return new Date(`${dateKey}T00:00:00`)
+      .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  }
+
+  journalRelativeLabel(dateKey) {
+    const today = this.toDateKey(new Date());
+    if (dateKey === today) return "Today";
+    if (dateKey === this.toDateKey(new Date(Date.now() - 86400000))) return "Yesterday";
+    if (dateKey > today) return "Later this week";
+    return new Date(`${dateKey}T00:00:00`).toLocaleDateString("en-US", { weekday: "long" });
+  }
+
+  selectJournalDate(dateKey, force = true) {
+    // Seal the day you're leaving before the editor moves on, so the 1.5s
+    // autosave debounce can never file today's words under tomorrow's date.
+    if (this.journalDirty && dateKey !== this.journalSelectedDate) this.saveJournalEntry();
+    this.journalSelectedDate = dateKey;
+    this.renderJournalEditor(force);
+    this.renderJournalList();
+  }
+
+  shiftJournalDate(deltaDays) {
+    const [y, m, d] = this.journalSelectedDate.split("-").map(Number);
+    const date = new Date(y, m - 1, d + deltaDays);
+    const key = this.toDateKey(date);
+    if (key > this.toDateKey(new Date())) return; // no journaling ahead of today
+    this.selectJournalDate(key);
+  }
+
+  syncMoodButtons() {
+    document.querySelectorAll(".journal-mood-btn").forEach(btn => {
+      btn.classList.toggle("active", Number(btn.dataset.mood) === this._journalMood);
+    });
+  }
+
+  currentJournalPrompt(dateKey) {
+    const prompts = [
+      "What made today feel like yours?",
+      "What's something small that went right today?",
+      "What are you carrying right now that you'd like to put down?",
+      "Who did you think about today, and why?",
+      "Which moment from today would you happily replay?",
+      "What surprised you today?",
+      "What did you avoid today — and what would starting look like?",
+      "Describe today to next week's you in three sentences.",
+      "What are you grateful for that you almost missed?",
+      "What did today teach you about yourself?"
+    ];
+    let hash = 0;
+    for (const ch of dateKey) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+    return prompts[(hash + this.journalPromptOffset) % prompts.length];
+  }
+
+  journalStreak() {
+    const days = new Set(this.journalEntries.map(e => e.date));
+    const today = this.toDateKey(new Date());
+    let cursor = new Date();
+    if (!days.has(today)) {
+      cursor = new Date(Date.now() - 86400000); // today's page may not be written yet
+      if (!days.has(this.toDateKey(cursor))) return 0;
+    }
+    let streak = 0;
+    while (days.has(this.toDateKey(cursor))) {
+      streak++;
+      cursor = new Date(cursor.getTime() - 86400000);
+    }
+    return streak;
+  }
+
+  // --- Rendering -------------------------------------------------------------
+  renderJournal() {
+    const lockCard = document.getElementById("journal-lock");
+    const view = document.getElementById("journal-view");
+    if (!lockCard || !view) return;
+
+    if (!this.journalUnlocked) {
+      this.renderJournalLock();
+      lockCard.classList.remove("hidden");
+      view.classList.add("hidden");
+      return;
+    }
+
+    lockCard.classList.add("hidden");
+    view.classList.remove("hidden");
+    this.renderJournalList();
+    this.renderJournalEditor(false);
+    this.renderJournalStats();
+  }
+
+  renderJournalLock() {
+    const mode = this.journalLockMode();
+    // The unlock screen also changes when a recovery question appears or is removed.
+    const cacheKey = `${mode}:${this.journalBlob?.recovery ? "q" : "noq"}`;
+    if (cacheKey === this._journalLockMode) return; // copy only changes on mode switches
+    this._journalLockMode = cacheKey;
+
+    const title = document.getElementById("journal-lock-title");
+    const subtitle = document.getElementById("journal-lock-subtitle");
+    const label = document.getElementById("journal-password-label");
+    const input = document.getElementById("journal-password-input");
+    const confirmGroup = document.getElementById("journal-confirm-group");
+    const submitLabel = document.getElementById("journal-lock-submit-label");
+    const keepRow = document.getElementById("journal-keep-row");
+    const restoreBtn = document.getElementById("journal-lock-restore-btn");
+    const backBtn = document.getElementById("journal-restore-cancel-btn");
+    const backLabel = document.getElementById("journal-back-btn-label");
+    const forgotBtn = document.getElementById("journal-forgot-btn");
+    const questionBlock = document.getElementById("journal-question-block");
+    const questionPick = document.getElementById("journal-question-pick");
+    const questionDisplay = document.getElementById("journal-question-display");
+    const questionSelect = document.getElementById("journal-question-select");
+    const questionCustom = document.getElementById("journal-question-custom");
+    const answerLabel = document.getElementById("journal-answer-label");
+    const answerConfirmGroup = document.getElementById("journal-answer-confirm-group");
+
+    this.clearJournalLockError();
+    if (input) input.value = "";
+    const confirmInput = document.getElementById("journal-password-confirm");
+    if (confirmInput) confirmInput.value = "";
+    const answerInput = document.getElementById("journal-answer-input");
+    if (answerInput) answerInput.value = "";
+    const answerConfirmInput = document.getElementById("journal-answer-confirm");
+    if (answerConfirmInput) answerConfirmInput.value = "";
+    if (questionSelect) questionSelect.value = "";
+    if (questionCustom) { questionCustom.value = ""; questionCustom.classList.add("hidden"); }
+
+    const question = this.journalBlob?.recovery?.question || "";
+    questionBlock?.classList.toggle("hidden", mode !== "create" && mode !== "reset");
+    questionPick?.classList.toggle("hidden", mode !== "create");
+    questionDisplay?.classList.toggle("hidden", mode !== "reset");
+    if (questionDisplay && mode === "reset") questionDisplay.textContent = `Security question: ${question}`;
+    if (answerLabel) answerLabel.textContent = mode === "create" ? "Answer *" : "Answer";
+    answerConfirmGroup?.classList.toggle("hidden", mode !== "create");
+    forgotBtn?.classList.toggle("hidden", mode !== "unlock" || !question);
+
+    if (mode === "create") {
+      if (title) title.textContent = "Create your journal password";
+      if (subtitle) subtitle.textContent =
+        "This is the only key to your private pages — set it once, then enter it every time you open the journal. It is never stored, so nobody else can open your journal, not even with your account. Pick a security question below: it's your way back in if you ever forget.";
+      if (label) label.textContent = "Choose a journal password (6+ characters)";
+      if (input) { input.placeholder = "At least 6 characters"; input.autocomplete = "new-password"; }
+      confirmGroup?.classList.remove("hidden");
+      if (submitLabel) submitLabel.textContent = "Create My Journal";
+      keepRow?.classList.add("hidden");
+      restoreBtn?.classList.remove("hidden");
+      backBtn?.classList.add("hidden");
+    } else if (mode === "restore") {
+      if (title) title.textContent = "Restore a journal backup";
+      if (subtitle) subtitle.textContent =
+        "You picked a backup file. Enter the password that protects it to bring those pages back into your account.";
+      if (label) label.textContent = "Backup password";
+      if (input) { input.placeholder = "Enter the backup's password"; input.autocomplete = "current-password"; }
+      confirmGroup?.classList.add("hidden");
+      if (submitLabel) submitLabel.textContent = "Restore & Unlock";
+      keepRow?.classList.add("hidden");
+      restoreBtn?.classList.add("hidden");
+      if (backLabel) backLabel.textContent = "Cancel restore";
+      backBtn?.classList.remove("hidden");
+    } else if (mode === "reset") {
+      if (title) title.textContent = "Reset your journal password";
+      if (subtitle) subtitle.textContent =
+        "Answer your security question to prove this journal is yours, then choose a new password. Your entries stay untouched.";
+      if (label) label.textContent = "New journal password (6+ characters)";
+      if (input) { input.placeholder = "At least 6 characters"; input.autocomplete = "new-password"; }
+      confirmGroup?.classList.remove("hidden");
+      if (submitLabel) submitLabel.textContent = "Reset & Unlock";
+      keepRow?.classList.add("hidden");
+      restoreBtn?.classList.add("hidden");
+      if (backLabel) backLabel.textContent = "Back to unlock";
+      backBtn?.classList.remove("hidden");
+    } else {
+      if (title) title.textContent = "Your journal is locked";
+      if (subtitle) subtitle.textContent =
+        "Enter your journal password to step inside. This space is yours alone.";
+      if (label) label.textContent = "Journal password";
+      if (input) { input.placeholder = "Enter your journal password"; input.autocomplete = "current-password"; }
+      confirmGroup?.classList.add("hidden");
+      if (submitLabel) submitLabel.textContent = "Unlock Journal";
+      keepRow?.classList.remove("hidden");
+      restoreBtn?.classList.remove("hidden");
+      backBtn?.classList.add("hidden");
+    }
+  }
+
+  renderJournalList() {
+    const container = document.getElementById("journal-entries-list");
+    const emptyState = document.getElementById("journal-list-empty-state");
+    const countLabel = document.getElementById("journal-count-label");
+    if (!container) return;
+
+    const search = this.journalSearch;
+    const filtered = this.journalEntries
+      .filter(entry => !search ||
+        (entry.title || "").toLowerCase().includes(search) ||
+        (entry.body || "").toLowerCase().includes(search))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    if (countLabel) {
+      const total = this.journalEntries.length;
+      const totalLabel = `${total} ${total === 1 ? "entry" : "entries"}`;
+      countLabel.textContent = (search && filtered.length !== total)
+        ? `${filtered.length} of ${totalLabel}`
+        : totalLabel;
+    }
+
+    if (filtered.length === 0) {
+      container.innerHTML = "";
+      const searching = Boolean(search);
+      const titleEl = document.getElementById("journal-empty-title");
+      const textEl = document.getElementById("journal-empty-text");
+      if (titleEl) titleEl.textContent = searching ? "No matching memories" : "Your story starts today";
+      if (textEl) textEl.textContent = searching
+        ? "Try a different word — your entries are still safe here."
+        : "Write your first entry — even two sentences count as showing up for yourself.";
+      emptyState?.classList.remove("hidden");
+      return;
+    }
+
+    emptyState?.classList.add("hidden");
+    const moods = ["😞", "😕", "😐", "🙂", "🤩"];
+    const today = this.toDateKey(new Date());
+
+    container.innerHTML = filtered.map(entry => {
+      const dateObj = new Date(`${entry.date}T00:00:00`);
+      const label = entry.date === today
+        ? "Today"
+        : dateObj.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      const preview = entry.body ||
+        (entry.mood !== null ? `Felt ${["rough", "low", "okay", "good", "great"][entry.mood] || "something"} — no words today.` : "No words yet.");
+      const mood = typeof entry.mood === "number" ? moods[entry.mood] : "";
+      return `
+        <button type="button" class="journal-entry-item ${entry.date === this.journalSelectedDate ? "active" : ""}" data-date="${entry.date}">
+          <span class="journal-entry-item-top">
+            <span class="journal-entry-date-label">${label}</span>
+            ${mood ? `<span class="journal-entry-mood">${mood}</span>` : ""}
+          </span>
+          <span class="journal-entry-title">${this.escapeHTML(entry.title || "Untitled day")}</span>
+          <span class="journal-entry-preview">${this.escapeHTML(preview)}</span>
+        </button>
+      `;
+    }).join("");
+
+    container.querySelectorAll(".journal-entry-item").forEach(btn => {
+      btn.addEventListener("click", () => this.selectJournalDate(btn.dataset.date));
+    });
+  }
+
+  renderJournalEditor(force = false) {
+    const date = this.journalSelectedDate;
+    if (!force && this._journalEditorDate === date) return; // never fight live typing
+
+    const entry = this.journalEntries.find(e => e.date === date) || null;
+    const dateEl = document.getElementById("journal-entry-date");
+    const relativeEl = document.getElementById("journal-entry-relative");
+    const picker = document.getElementById("journal-date-picker");
+    const titleInput = document.getElementById("journal-title-input");
+    const bodyInput = document.getElementById("journal-body-input");
+    const promptEl = document.getElementById("journal-prompt-text");
+    const nextBtn = document.getElementById("journal-next-day-btn");
+
+    if (dateEl) dateEl.textContent = this.journalFormatDate(date);
+    if (relativeEl) relativeEl.textContent = this.journalRelativeLabel(date);
+    if (picker) picker.value = date;
+    if (titleInput) titleInput.value = entry?.title || "";
+    if (bodyInput) bodyInput.value = entry?.body || "";
+    if (promptEl) promptEl.textContent = this.currentJournalPrompt(date);
+
+    this._journalMood = typeof entry?.mood === "number" ? entry.mood : null;
+    this.syncMoodButtons();
+    this.updateJournalWordCount();
+    this.updateJournalSaveState(!this.journalDirty);
+
+    if (nextBtn) nextBtn.disabled = date >= this.toDateKey(new Date());
+
+    this._journalEditorDate = date;
+  }
+
+  renderJournalStats() {
+    const streak = this.journalStreak();
+    const badge = document.getElementById("journal-streak-badge");
+    if (badge) {
+      badge.innerHTML = streak > 0
+        ? `<i class="fa-solid fa-fire"></i> ${streak} day${streak === 1 ? "" : "s"} streak`
+        : '<i class="fa-solid fa-fire"></i> Start your streak';
+    }
+    const sync = document.getElementById("journal-sync-badge");
+    if (sync && this.journalBlob?.updatedAt) {
+      sync.title = `Last encrypted sync: ${new Date(this.journalBlob.updatedAt).toLocaleString()}`;
+    }
+
+    const setQuestionBtn = document.getElementById("journal-set-question-btn");
+    if (setQuestionBtn) {
+      setQuestionBtn.classList.toggle("hidden", !this.journalUnlocked);
+      const hasQuestion = Boolean(this.journalBlob?.recovery);
+      const labelEl = document.getElementById("journal-set-question-label");
+      if (labelEl) labelEl.textContent = hasQuestion ? "Recovery question" : "Set recovery question";
+      setQuestionBtn.title = hasQuestion
+        ? "View or change the question that can reset a forgotten password"
+        : "Pick a question that can reset a forgotten password";
+    }
+  }
+
+  // --- Backup & restore -------------------------------------------------------
+  async exportJournalBackup() {
+    if (!this.journalUnlocked || !this.journalBlob) {
+      this.showToast("Unlock the journal before downloading a backup", "alert");
+      return;
+    }
+    if (this.journalDirty) await this.saveJournalEntry();
+
+    const payload = {
+      app: "StudyBuddy",
+      type: "studybuddy-journal-backup",
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      entries: this.journalEntries.length,
+      note: "Encrypted with your journal password — or reset with your security answer. Neither can be recovered without them.",
+      blob: this.journalBlob
+    };
+
+    const file = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `studybuddy-journal-backup-${this.toDateKey(new Date())}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    this.showToast("Encrypted backup downloaded — drop it into Google Drive to keep it forever", "success");
+  }
+
+  async handleJournalBackupFile(file) {
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      const blob = (parsed && typeof parsed === "object" && parsed.blob) ? parsed.blob : parsed;
+      const wrapped = blob && blob.v === 2 && typeof blob.data === "object" && blob.data !== null;
+      const looksValid = wrapped
+        ? typeof blob.pw?.salt === "string" && typeof blob.data?.data === "string"
+        : typeof blob?.salt === "string" && typeof blob?.iv === "string" && typeof blob?.data === "string";
+      if (!looksValid) {
+        throw new Error("not a StudyBuddy journal backup");
+      }
+      this.journalPendingImport = blob;
+      if (this.journalUnlocked) this.lockJournal(); // saves any unsaved words first
+      this._journalLockMode = null;                  // force the lock card into restore mode
+      this.renderJournal();
+      document.getElementById("journal-password-input")?.focus();
+    } catch (e) {
+      console.warn("[StudyBuddy] Backup restore rejected:", e);
+      this.journalPendingImport = null;
+      this.showToast("That file isn't a valid StudyBuddy journal backup", "alert");
+    } finally {
+      const input = document.getElementById("journal-backup-file-input");
+      if (input) input.value = "";
+    }
+  }
+
+  // --- Change password ---------------------------------------------------------
+  openJournalPasswordModal() {
+    if (!this.journalUnlocked) return;
+    const form = document.getElementById("journal-password-form");
+    form?.reset();
+    document.getElementById("journal-password-modal-error")?.classList.add("hidden");
+    this.openModal(document.getElementById("journal-password-modal"));
+  }
+
+  async saveJournalPasswordFromForm(e) {
+    e.preventDefault();
+    const errorBox = document.getElementById("journal-password-modal-error");
+    const current = document.getElementById("journal-current-password")?.value || "";
+    const next = document.getElementById("journal-new-password")?.value || "";
+    const confirm = document.getElementById("journal-new-password-confirm")?.value || "";
+    const fail = (message) => {
+      if (errorBox) {
+        errorBox.textContent = message;
+        errorBox.classList.remove("hidden");
+      }
+    };
+
+    errorBox?.classList.add("hidden");
+    if (next !== confirm) return fail("The new passwords don't match.");
+    if (next.length < 6) return fail("Use at least 6 characters for the new password.");
+
+    const submitBtn = document.getElementById("save-journal-password-btn");
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+      await this.journalUnlock(this.journalBlob, current); // verifies the current password
+      if (this.journalDirty) await this.saveJournalEntry();
+
+      if (this.journalBlob?.v === 2 && this.journalBlob?.pw && this.journalKey) {
+        // Same data key, new lock on the door — the entries never get re-encrypted.
+        const pw = await this.journalWrapKey(this.journalKey, next);
+        this.journalBlob = { ...this.journalBlob, pw, updatedAt: new Date().toISOString() };
+      } else {
+        const { key, blob } = await this.journalCreate(this.journalEntries, next);
+        this.journalBlob = blob;
+        this.journalKey = key;
+      }
+      this.persist();
+      this.closeModal(document.getElementById("journal-password-modal"));
+      this.showToast("Journal password updated — it will be asked for next time", "success");
+    } catch (err) {
+      fail(err?.code === "wrong-password" ? "Your current password is incorrect."
+        : err?.message || "Couldn't update the password.");
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+      document.getElementById("journal-current-password") && (document.getElementById("journal-current-password").value = "");
+      document.getElementById("journal-new-password") && (document.getElementById("journal-new-password").value = "");
+      document.getElementById("journal-new-password-confirm") && (document.getElementById("journal-new-password-confirm").value = "");
+    }
+  }
+
+  // --- Recovery question ------------------------------------------------------
+  /**
+   * Reads the question select used by the lock card or the modal. Preset
+   * options carry their text as the value; "__custom" falls through to the
+   * free-text input. Returns "" when nothing usable was picked.
+   */
+  readJournalQuestion(selectId = "journal-question-select", customId = "journal-question-custom") {
+    const select = document.getElementById(selectId);
+    const value = (select?.value || "").trim();
+    if (!value) return "";
+    if (value === "__custom") return (document.getElementById(customId)?.value || "").trim();
+    return value;
+  }
+
+  openJournalQuestionModal() {
+    if (!this.journalUnlocked || !this.journalKey) return;
+    const form = document.getElementById("journal-question-form");
+    form?.reset();
+    document.getElementById("jq-error")?.classList.add("hidden");
+    const custom = document.getElementById("jq-question-custom");
+    if (custom) { custom.value = ""; custom.classList.add("hidden"); }
+
+    // Pre-fill the current question so it can be reviewed or changed.
+    const select = document.getElementById("jq-question-select");
+    const current = this.journalBlob?.recovery?.question || "";
+    if (select && current) {
+      const isPreset = Array.from(select.options).some(o => o.value && o.value !== "__custom" && o.value === current);
+      if (isPreset) {
+        select.value = current;
+      } else {
+        select.value = "__custom";
+        if (custom) {
+          custom.value = current;
+          custom.classList.remove("hidden");
+        }
+      }
+    }
+    this.openModal(document.getElementById("journal-question-modal"));
+  }
+
+  async saveJournalQuestionFromForm(e) {
+    e.preventDefault();
+    const errorBox = document.getElementById("jq-error");
+    const fail = (message) => {
+      if (errorBox) {
+        errorBox.textContent = message;
+        errorBox.classList.remove("hidden");
+      }
+    };
+    errorBox?.classList.add("hidden");
+
+    const question = this.readJournalQuestion("jq-question-select", "jq-question-custom");
+    const answer = document.getElementById("jq-answer")?.value || "";
+    const confirm = document.getElementById("jq-answer-confirm")?.value || "";
+
+    if (!question) return fail("Pick a security question first.");
+    if (answer.trim().length < 3) return fail("Use at least 3 characters for the answer.");
+    if (answer !== confirm) return fail("The two answers don't match.");
+    if (!this.journalUnlocked || !this.journalKey) return fail("Re-lock and unlock the journal, then try again.");
+    if (this.journalBlob?.v !== 2 || !this.journalBlob?.pw) return fail("Re-lock and unlock the journal once more, then try again.");
+
+    const submitBtn = document.getElementById("save-journal-question-btn");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      if (this.journalDirty) await this.saveJournalEntry();
+      // The data key stays the same — only a second wrapped copy of it is added.
+      const wrapper = await this.journalWrapKey(this.journalKey, this.journalNormalizeAnswer(answer));
+      this.journalBlob = {
+        ...this.journalBlob,
+        v: 2,
+        recovery: { question, ...wrapper },
+        updatedAt: new Date().toISOString()
+      };
+      this.persist();
+      this.closeModal(document.getElementById("journal-question-modal"));
+      this.renderJournalStats();
+      this.showToast("Recovery question saved — it can reset a forgotten password", "success");
+    } catch (err) {
+      console.warn("[StudyBuddy] Recovery question failed:", err);
+      fail("Couldn't save the question — try again.");
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+      const answerInput = document.getElementById("jq-answer");
+      if (answerInput) answerInput.value = "";
+      const answerConfirmInput = document.getElementById("jq-answer-confirm");
+      if (answerConfirmInput) answerConfirmInput.value = "";
+    }
+  }
+
+  setupJournalEvents() {
+    // Lock / create / restore form
+    document.getElementById("journal-lock-form")?.addEventListener("submit", (e) => this.handleJournalLockSubmit(e));
+
+    document.getElementById("journal-lock-restore-btn")?.addEventListener("click", () => {
+      document.getElementById("journal-backup-file-input")?.click();
+    });
+    document.getElementById("journal-restore-btn")?.addEventListener("click", () => {
+      document.getElementById("journal-backup-file-input")?.click();
+    });
+    // One "back" button shared by restore mode (cancel) and reset mode (undo)
+    document.getElementById("journal-restore-cancel-btn")?.addEventListener("click", () => {
+      this.journalPendingImport = null;
+      this.journalResetMode = false;
+      this._journalLockMode = null;
+      this.clearJournalLockError();
+      this.renderJournalLock();
+    });
+    // Forgotten password → recovery-question reset mode
+    document.getElementById("journal-forgot-btn")?.addEventListener("click", () => {
+      if (!this.journalBlob?.recovery) return;
+      this.journalResetMode = true;
+      this._journalLockMode = null;
+      this.clearJournalLockError();
+      this.renderJournalLock();
+      document.getElementById("journal-answer-input")?.focus();
+    });
+    // "Write my own question" reveals the free-text field
+    [["journal-question-select", "journal-question-custom"], ["jq-question-select", "jq-question-custom"]].forEach(([selectId, customId]) => {
+      const select = document.getElementById(selectId);
+      const custom = document.getElementById(customId);
+      select?.addEventListener("change", () => {
+        const showCustom = select.value === "__custom";
+        custom?.classList.toggle("hidden", !showCustom);
+        if (showCustom) custom?.focus();
+      });
+    });
+    document.getElementById("journal-backup-file-input")?.addEventListener("change", (e) => {
+      this.handleJournalBackupFile(e.target.files?.[0]);
+    });
+
+    // "Keep unlocked" preference
+    const keepInput = document.getElementById("journal-keep-unlocked-input");
+    if (keepInput) {
+      keepInput.checked = this.isJournalKeepUnlocked();
+      keepInput.addEventListener("change", () => {
+        try {
+          localStorage.setItem("studybuddy-journal-keep-unlocked", keepInput.checked ? "1" : "0");
+        } catch (err) { /* preference is best-effort */ }
+      });
+    }
+
+    // Toolbar
+    document.getElementById("journal-lock-btn")?.addEventListener("click", () => this.lockJournal());
+    document.getElementById("journal-export-btn")?.addEventListener("click", () => this.exportJournalBackup());
+    document.getElementById("journal-change-pass-btn")?.addEventListener("click", () => this.openJournalPasswordModal());
+    document.getElementById("journal-password-form")?.addEventListener("submit", (e) => this.saveJournalPasswordFromForm(e));
+    document.getElementById("journal-set-question-btn")?.addEventListener("click", () => this.openJournalQuestionModal());
+    document.getElementById("journal-question-form")?.addEventListener("submit", (e) => this.saveJournalQuestionFromForm(e));
+
+    // Editor navigation
+    document.getElementById("journal-today-btn")?.addEventListener("click", () => {
+      this.selectJournalDate(this.toDateKey(new Date()));
+    });
+    document.getElementById("journal-prev-day-btn")?.addEventListener("click", () => this.shiftJournalDate(-1));
+    document.getElementById("journal-next-day-btn")?.addEventListener("click", () => this.shiftJournalDate(1));
+    document.getElementById("journal-date-picker")?.addEventListener("change", (e) => {
+      if (e.target.value) this.selectJournalDate(e.target.value);
+    });
+
+    // Search
+    document.getElementById("journal-search-input")?.addEventListener("input", (e) => {
+      this.journalSearch = e.target.value.toLowerCase().trim();
+      this.renderJournalList();
+    });
+
+    // Mood picker
+    document.getElementById("journal-mood-buttons")?.addEventListener("click", (e) => {
+      const btn = e.target.closest(".journal-mood-btn");
+      if (!btn) return;
+      const mood = Number(btn.dataset.mood);
+      this._journalMood = this._journalMood === mood ? null : mood;
+      this.syncMoodButtons();
+      this.markJournalDirty();
+    });
+
+    // Writing
+    document.getElementById("journal-prompt-refresh-btn")?.addEventListener("click", () => {
+      this.journalPromptOffset++;
+      const promptEl = document.getElementById("journal-prompt-text");
+      if (promptEl) promptEl.textContent = this.currentJournalPrompt(this.journalSelectedDate);
+    });
+    const onWrite = () => {
+      this.updateJournalWordCount();
+      this.markJournalDirty();
+    };
+    document.getElementById("journal-title-input")?.addEventListener("input", onWrite);
+    document.getElementById("journal-body-input")?.addEventListener("input", onWrite);
+
+    document.getElementById("journal-save-btn")?.addEventListener("click", () => this.saveJournalEntry(true));
+    document.getElementById("journal-delete-btn")?.addEventListener("click", async () => {
+      const date = this.journalSelectedDate;
+      const index = this.journalEntries.findIndex(entry => entry.date === date);
+      if (index === -1) {
+        this.showToast("There's no entry for this day yet", "info");
+        return;
+      }
+      if (!confirm(`Delete the entry for ${this.journalFormatDate(date)}? This can't be undone.`)) return;
+      this.journalEntries.splice(index, 1);
+      this.journalDirty = false;
+      await this.encryptAndSyncJournal();
+      this.renderJournalEditor(true);
+      this.renderJournalList();
+      this.renderJournalStats();
+      this.showToast("Entry deleted", "info");
+    });
+
+    // The private space re-locks whenever the journal is out of sight.
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && this.journalUnlocked && !this.isJournalKeepUnlocked()) this.lockJournal();
+    });
+  }
+
+  // ===========================================================================
+  // 12. Helper Utilities
   // ===========================================================================
   formatDueDateBadge(dueDateStr) {
     if (!dueDateStr) return { text: "No due date", isOverdue: false };
@@ -2971,7 +4164,7 @@ class StudyBuddyApp {
 }
 
 // =============================================================================
-// 12. Bootstrap: Google Sign-In Gate & App Startup
+// 13. Bootstrap: Google Sign-In Gate & App Startup
 // =============================================================================
 /** Applies and toggles the colour theme before/independent of app init. */
 const ThemeBootstrap = {
