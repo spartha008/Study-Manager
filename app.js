@@ -188,26 +188,40 @@ const supabaseClient = IS_CONFIGURED
  * RemoteStore - reads/writes the signed-in user's single workspace row in
  * Supabase. Row Level Security (see supabase/schema.sql) guarantees that each
  * user can only ever touch their own data.
+ *
+ * Every request races a timeout so a blocked/slow connection surfaces a clear
+ * error instead of an infinite "Preparing your workspace…" spinner.
  */
 class RemoteStore {
-  static async load(userId) {
-    const { data, error } = await supabaseClient
+  static async request(fn, label, timeoutMs = 12000) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s (network blocked or offline?)`));
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([fn(), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  static load(userId) {
+    return this.request(() => supabaseClient
       .from("studybuddy_state")
       .select("data")
       .eq("user_id", userId)
-      .maybeSingle();
-    if (error) throw error;
-    return data?.data || null;
+      .maybeSingle(), "Loading your workspace");
   }
 
-  static async save(userId, state) {
-    const { error } = await supabaseClient
+  static save(userId, state) {
+    return this.request(() => supabaseClient
       .from("studybuddy_state")
       .upsert(
         { user_id: userId, data: state, updated_at: new Date().toISOString() },
         { onConflict: "user_id" }
-      );
-    if (error) throw error;
+      ), "Saving your workspace", 15000);
   }
 }
 
@@ -393,12 +407,19 @@ class StudyBuddyApp {
     this.user = session.user;
     this.renderUserProfile();
 
+    AuthGate.showLoading("Loading your workspace…");
+
     let saved = null;
     try {
       saved = await RemoteStore.load(this.user.id);
     } catch (e) {
-      console.error("Failed to load cloud workspace:", e);
-      this.showToast("Couldn't load your cloud workspace. Is the supabase/schema.sql table created?", "alert");
+      // Don't silently degrade: entering the app with sample data could
+      // overwrite the real cloud workspace on the next save. Surface a clear,
+      // actionable error instead.
+      console.error("[StudyBuddy] Failed to load cloud workspace:", e);
+      const err = new Error(describeWorkspaceError(e));
+      err.isAuthHtml = true;
+      throw err;
     }
 
     if (saved && typeof saved === "object") {
@@ -417,6 +438,7 @@ class StudyBuddyApp {
       this.persist();
     }
 
+    AuthGate.showLoading("Starting StudyBuddy…");
     this.init();
   }
 
@@ -1944,23 +1966,56 @@ const AuthGate = {
   }
 };
 
+/**
+ * Turn a workspace-load failure into a friendly, actionable message (as HTML).
+ */
+function describeWorkspaceError(e) {
+  const msg = (e && e.message) || String(e);
+  if (msg.includes("PGRST205") || /could not find the table/i.test(msg)) {
+    return "The database table is missing. Run the contents of <code>supabase/schema.sql</code> " +
+      "in the Supabase SQL editor, then reload this page.";
+  }
+  if (/timed out/i.test(msg)) {
+    return "Loading your workspace timed out — an ad-blocker or privacy extension " +
+      "(uBlock Origin, Brave Shields, …) is very often the cause. Disable it for this site " +
+      "and reload. Technical detail: <code>" + AuthGate.escapeText(msg) + "</code>";
+  }
+  return "Couldn't load your workspace: <code>" + AuthGate.escapeText(msg) + "</code>. " +
+    "Press F12 → Console for details, then reload to try again.";
+}
+
 async function bootWithSession(session) {
   if (window.studyBuddy) return; // already booted in this page load
 
   AuthGate.hideScreen();
   AuthGate.showLoading("Preparing your workspace…");
 
-  try {
-    window.studyBuddy = new StudyBuddyApp();
-    await window.studyBuddy.startSession(session);
-    document.getElementById("app-layout")?.classList.remove("hidden");
-  } catch (e) {
-    console.error("Failed to start StudyBuddy:", e);
+  // Watchdog: never leave the user on the spinner forever. If boot doesn't
+  // finish in 25s, show a real error they can act on.
+  const watchdog = setTimeout(() => {
+    console.error("[StudyBuddy] Boot timed out after 25s — the request to Supabase never settled.");
     window.studyBuddy = null;
     AuthGate.hideLoading();
     AuthGate.showScreen();
-    AuthGate.showError("Something went wrong while loading your workspace. Please sign in again.");
-    await supabaseClient?.auth.signOut();
+    AuthGate.showError(
+      "Loading took too long — the connection to Supabase isn't going through. " +
+      "The usual culprit is an ad-blocker/privacy extension or a bad network. " +
+      "Press F12 → Console for details, then reload to try again."
+    );
+  }, 25000);
+
+  try {
+    window.studyBuddy = new StudyBuddyApp();
+    await window.studyBuddy.startSession(session);
+    clearTimeout(watchdog);
+    document.getElementById("app-layout")?.classList.remove("hidden");
+  } catch (e) {
+    clearTimeout(watchdog);
+    console.error("[StudyBuddy] Failed to start StudyBuddy:", e);
+    window.studyBuddy = null;
+    AuthGate.hideLoading();
+    AuthGate.showScreen();
+    AuthGate.showError(e?.isAuthHtml ? e.message : describeWorkspaceError(e));
     return;
   }
 
@@ -1994,12 +2049,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   AuthGate.showScreen();
 
-  // React to auth events (e.g. sign-out from another tab).
+  // React to auth events (e.g. sign-in completed in another tab). The setTimeout
+  // releases supabase-js's internal auth lock first — calling async auth methods
+  // directly inside this callback is a documented deadlock in supabase-js v2.
   supabaseClient.auth.onAuthStateChange((event, session) => {
-    if (event === "SIGNED_IN" && session) {
-      bootWithSession(session);
-    } else if (event === "SIGNED_OUT" && window.studyBuddy) {
-      window.location.reload();
-    }
+    setTimeout(() => {
+      if (event === "SIGNED_IN" && session) {
+        bootWithSession(session);
+      } else if (event === "SIGNED_OUT" && window.studyBuddy) {
+        window.location.reload();
+      }
+    }, 0);
   });
 });
