@@ -184,6 +184,10 @@ const supabaseClient = IS_CONFIGURED
   ? window.supabase.createClient(SUPABASE_CONFIG.SUPABASE_URL, SUPABASE_CONFIG.SUPABASE_ANON_KEY)
   : null;
 
+// Shown on the loading/login screens so it's always obvious which build is
+// actually running in the browser (rules out stale-cache confusion).
+const APP_BUILD = "build 2026-10-20b";
+
 /**
  * RemoteStore - reads/writes the signed-in user's single workspace row in
  * Supabase. Row Level Security (see supabase/schema.sql) guarantees that each
@@ -1817,6 +1821,9 @@ const AuthGate = {
     this.errorBox = document.getElementById("auth-error");
     this.signInBtn = document.getElementById("google-signin-btn");
 
+    const buildEl = document.getElementById("auth-build");
+    if (buildEl) buildEl.textContent = APP_BUILD;
+
     if (!window.supabase) {
       this.showError(
         "The Supabase library couldn't be loaded from the CDN. Check your internet connection " +
@@ -1844,7 +1851,7 @@ const AuthGate = {
 
   showLoading(text) {
     const textEl = document.getElementById("auth-loading-text");
-    if (text && textEl) textEl.textContent = text;
+    if (text && textEl) textEl.textContent = `${text} (${APP_BUILD})`;
     this.loading?.classList.remove("hidden");
   },
 

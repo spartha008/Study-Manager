@@ -2190,6 +2190,14 @@ form {
   margin-right: 0.35rem;
 }
 
+.auth-build-tag {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--slate-300);
+}
+
 /* Auth Loading Overlay */
 .auth-loading {
   position: fixed;
