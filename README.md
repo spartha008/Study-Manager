@@ -58,8 +58,13 @@ A modern, responsive, and beginner-friendly web application built for students t
    - Secured with Row Level Security: no user can ever read or edit another user's data.
    - "Clear All Data" button in the sidebar footer to wipe your workspace anytime.
 
-7. **📱 Fully Responsive & Clean Design**
-   - Light blue and crisp white palette (`#f0f9ff`, `#e0f2fe`, `#38bdf8`, `#0284c7`).
+7. **🌗 Light & Dark Theme**
+   - One-click theme toggle in the top bar (and on the login screen).
+   - Dark mode re-points the whole design-token palette — every surface, border, shadow and accent adapts, including the calendar, modals and toasts.
+   - Remembers your choice across sessions; follows your operating system preference until you pick one yourself.
+
+8. **📱 Fully Responsive & Clean Design**
+   - Light blue and crisp white palette (`#f0f9ff`, `#e0f2fe`, `#38bdf8`, `#0284c7`) with a matching dark counterpart.
    - Rounded cards with smooth shadows and micro-animations.
    - Mobile slide-out drawer navigation and desktop sidebar.
 

@@ -195,7 +195,7 @@ const supabaseClient = IS_CONFIGURED
 
 // Shown on the loading/login screens so it's always obvious which build is
 // actually running in the browser (rules out stale-cache confusion).
-const APP_BUILD = "build 2026-10-20b";
+const APP_BUILD = "build 2026-10-20c";
 
 /**
  * RemoteStore - reads/writes the signed-in user's single workspace row in
@@ -399,6 +399,8 @@ class StudyBuddyApp {
     this.noteSearch = "";
     this.noteSubjectFilter = "all";
 
+    this.theme = "light";
+
     this.init();
   }
 
@@ -415,6 +417,7 @@ class StudyBuddyApp {
     this.setupCalendarEvents();
     this.setupPomodoroEvents();
     this.setupQuotes();
+    this.setupTheme();
     this.startReminderTicker();
 
     // Initial Render
@@ -1734,6 +1737,36 @@ class StudyBuddyApp {
   }
 
   // ===========================================================================
+  // 9e. Theme (Light / Dark)
+  // ===========================================================================
+  setupTheme() {
+    // Sync the in-app state with whatever the login screen already applied.
+    this.theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+
+    document.getElementById("theme-toggle")?.addEventListener("click", () => this.toggleTheme());
+    document.getElementById("theme-toggle-mobile")?.addEventListener("click", () => this.toggleTheme());
+
+    // Follow the OS preference until the user makes an explicit choice.
+    if (window.matchMedia) {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      const onChange = (e) => {
+        if (!ThemeBootstrap.readStored()) this.applyTheme(e.matches ? "dark" : "light", false);
+      };
+      if (mq.addEventListener) mq.addEventListener("change", onChange);
+      else if (mq.addListener) mq.addListener(onChange);
+    }
+  }
+
+  toggleTheme() {
+    this.applyTheme(this.theme === "dark" ? "light" : "dark", true);
+  }
+
+  applyTheme(theme, persistChoice) {
+    ThemeBootstrap.set(theme, persistChoice);
+    this.theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  }
+
+  // ===========================================================================
   // 10. Rendering & Updating Views
   // ===========================================================================
   renderAll() {
@@ -2530,6 +2563,54 @@ class StudyBuddyApp {
 // =============================================================================
 // 12. Bootstrap: Google Sign-In Gate & App Startup
 // =============================================================================
+/** Applies and toggles the colour theme before/independent of app init. */
+const ThemeBootstrap = {
+  KEY: "studybuddy-theme",
+
+  readStored() {
+    try {
+      const v = localStorage.getItem(this.KEY);
+      return v === "dark" || v === "light" ? v : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  prefersDark() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  },
+
+  applyInitialTheme() {
+    const theme = this.readStored() || (this.prefersDark() ? "dark" : "light");
+    this.set(theme, false);
+  },
+
+  toggle() {
+    const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+    this.set(current === "dark" ? "light" : "dark", true);
+  },
+
+  set(theme, persist) {
+    const value = theme === "dark" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", value);
+
+    // Keep every toggle button's icon in sync (sun while dark, moon while light).
+    const icon = value === "dark" ? "fa-sun" : "fa-moon";
+    document.querySelectorAll(".theme-toggle-btn i").forEach(el => {
+      el.classList.remove("fa-sun", "fa-moon");
+      el.classList.add(icon);
+    });
+
+    if (persist) {
+      try {
+        localStorage.setItem(this.KEY, value);
+      } catch (e) {
+        /* Persisting is best-effort. */
+      }
+    }
+  }
+};
+
 const AuthGate = {
   screen: null,
   loading: null,
@@ -2751,6 +2832,11 @@ async function bootWithSession(session) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // Apply the saved/OS theme immediately so the login screen matches too,
+  // and wire the login screen's own toggle (the app's setupTheme() wires the rest).
+  ThemeBootstrap.applyInitialTheme();
+  document.getElementById("theme-toggle-auth")?.addEventListener("click", () => ThemeBootstrap.toggle());
+
   AuthGate.init();
 
   if (!supabaseClient) return; // Not configured — the login screen explains what to do.
