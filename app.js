@@ -160,6 +160,15 @@ const DEFAULT_NOTES = [
   }
 ];
 
+/**
+ * The sample items above are no longer seeded into anyone's workspace — they
+ * exist only so we can recognise (and clean up) the demo content that older
+ * versions of the app saved for users who signed in back then.
+ */
+const DEMO_SEED_IDS = new Set(
+  [...DEFAULT_TASKS, ...DEFAULT_TIMETABLE, ...DEFAULT_NOTES].map(item => item.id)
+);
+
 const MOTIVATIONAL_QUOTES = [
   { text: "Success is the sum of small efforts, repeated day in and day out.", author: "Robert Collier" },
   { text: "You don't have to be great to start, but you have to start to be great.", author: "Zig Ziglar" },
@@ -427,23 +436,50 @@ class StudyBuddyApp {
     }
 
     if (saved && typeof saved === "object") {
-      this.tasks = Array.isArray(saved.tasks) ? saved.tasks : JSON.parse(JSON.stringify(DEFAULT_TASKS));
-      this.timetable = Array.isArray(saved.timetable) ? saved.timetable : JSON.parse(JSON.stringify(DEFAULT_TIMETABLE));
-      this.notes = Array.isArray(saved.notes) ? saved.notes : JSON.parse(JSON.stringify(DEFAULT_NOTES));
+      this.tasks = Array.isArray(saved.tasks) ? saved.tasks : [];
+      this.timetable = Array.isArray(saved.timetable) ? saved.timetable : [];
+      this.notes = Array.isArray(saved.notes) ? saved.notes : [];
       this.focusMinutes = Number(saved.focusMinutes) || 0;
       this.pomodoroSessions = Number(saved.pomodoroSessions) || 0;
+
+      // One-time cleanup: accounts that signed up while the app still shipped
+      // with sample data had that demo content saved into their workspace.
+      // Strip it so everyone starts (and stays) with their own real content.
+      if (this.removeDemoContent()) this.persist();
     } else {
-      // First sign-in on this account: seed the friendly sample workspace.
-      this.tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
-      this.timetable = JSON.parse(JSON.stringify(DEFAULT_TIMETABLE));
-      this.notes = JSON.parse(JSON.stringify(DEFAULT_NOTES));
-      this.focusMinutes = 75;
-      this.pomodoroSessions = 3;
+      // First sign-in on this account: start with a clean, empty workspace.
+      this.tasks = [];
+      this.timetable = [];
+      this.notes = [];
+      this.focusMinutes = 0;
+      this.pomodoroSessions = 0;
       this.persist();
     }
 
     AuthGate.showLoading("Starting StudyBuddy…");
     this.init();
+  }
+
+  /**
+   * Removes any leftover sample/demo items from the current workspace.
+   * Returns true if anything was removed.
+   */
+  removeDemoContent() {
+    const isDemo = item => item && DEMO_SEED_IDS.has(item.id);
+    const tasks = this.tasks.filter(t => !isDemo(t));
+    const timetable = this.timetable.filter(s => !isDemo(s));
+    const notes = this.notes.filter(n => !isDemo(n));
+
+    const removed = tasks.length !== this.tasks.length ||
+      timetable.length !== this.timetable.length ||
+      notes.length !== this.notes.length;
+
+    if (removed) {
+      this.tasks = tasks;
+      this.timetable = timetable;
+      this.notes = notes;
+    }
+    return removed;
   }
 
   // Fill the sidebar/topbar with the signed-in Google profile.
@@ -552,19 +588,19 @@ class StudyBuddyApp {
       sidebarOverlay?.addEventListener("click", closeMenu);
     }
 
-    // Reset Demo Data
-    const resetBtn = document.getElementById("reset-demo-data-btn");
-    if (resetBtn) {
-      resetBtn.addEventListener("click", () => {
-        if (confirm("Reset StudyBuddy to initial sample study data? This will refresh your tasks, timetable, and notes.")) {
-          this.tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
-          this.timetable = JSON.parse(JSON.stringify(DEFAULT_TIMETABLE));
-          this.notes = JSON.parse(JSON.stringify(DEFAULT_NOTES));
-          this.focusMinutes = 75;
-          this.pomodoroSessions = 3;
+    // Clear All Data
+    const clearBtn = document.getElementById("clear-all-data-btn");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        if (confirm("Clear your entire workspace? This permanently deletes all your assignments, study slots, and notes.")) {
+          this.tasks = [];
+          this.timetable = [];
+          this.notes = [];
+          this.focusMinutes = 0;
+          this.pomodoroSessions = 0;
           this.persist();
           this.renderAll();
-          this.showToast("Demo data reset successfully!", "info");
+          this.showToast("All data cleared", "info");
         }
       });
     }

@@ -44,10 +44,10 @@ A modern, responsive, and beginner-friendly web application built for students t
 
 6. **☁️ Cloud Persistence (Supabase)**
    - Sign in with Google — every account gets its own private workspace.
+   - New accounts start with a completely empty workspace — no sample content.
    - All tasks, timetable sessions, notes, and study metrics sync to your Supabase project and follow you across devices.
    - Secured with Row Level Security: no user can ever read or edit another user's data.
-   - Comes pre-populated with friendly sample study data on first sign-in.
-   - "Reset Demo Data" button in the sidebar footer to reset back to initial sample state anytime.
+   - "Clear All Data" button in the sidebar footer to wipe your workspace anytime.
 
 7. **📱 Fully Responsive & Clean Design**
    - Light blue and crisp white palette (`#f0f9ff`, `#e0f2fe`, `#38bdf8`, `#0284c7`).
