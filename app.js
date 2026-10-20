@@ -221,7 +221,7 @@ class SoundFX {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = "sine";
-      
+
       const now = ctx.currentTime;
       osc.frequency.setValueAtTime(523.25, now); // C5
       osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.1); // E5
@@ -246,7 +246,7 @@ class SoundFX {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = "triangle";
-      
+
       const now = ctx.currentTime;
       osc.frequency.setValueAtTime(440, now);
       osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
@@ -258,7 +258,7 @@ class SoundFX {
       gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.5);
-    } catch (e) {}
+    } catch (e) { }
   }
 }
 
@@ -377,7 +377,7 @@ class StudyBuddyApp {
     this.setupNoteEvents();
     this.setupPomodoroEvents();
     this.setupQuotes();
-    
+
     // Initial Render
     this.renderAll();
   }
@@ -612,7 +612,7 @@ class StudyBuddyApp {
 
     const toast = document.createElement("div");
     toast.className = `toast toast-${type}`;
-    
+
     let icon = "fa-circle-check";
     if (type === "info") icon = "fa-circle-info";
     if (type === "alert") icon = "fa-triangle-exclamation";
@@ -1448,8 +1448,8 @@ class StudyBuddyApp {
 
     let filtered = this.tasks.filter(t => {
       // Search
-      const matchSearch = !this.taskSearch || 
-        t.title.toLowerCase().includes(this.taskSearch) || 
+      const matchSearch = !this.taskSearch ||
+        t.title.toLowerCase().includes(this.taskSearch) ||
         t.subject.toLowerCase().includes(this.taskSearch) ||
         (t.description && t.description.toLowerCase().includes(this.taskSearch));
 
@@ -1620,7 +1620,7 @@ class StudyBuddyApp {
     if (!container) return;
 
     let filtered = this.notes.filter(note => {
-      const matchSearch = !this.noteSearch || 
+      const matchSearch = !this.noteSearch ||
         note.title.toLowerCase().includes(this.noteSearch) ||
         note.content.toLowerCase().includes(this.noteSearch) ||
         note.subject.toLowerCase().includes(this.noteSearch);
@@ -1915,10 +1915,10 @@ const AuthGate = {
     const urlBefore = window.location.href;
 
     try {
-      const { error } = await supabaseClient.auth.signInWithProvider("google", {
+      const { error } = await supabaseClient.auth.signInWithOAuth({
+        provider: "google",
         options: { redirectTo: window.location.origin }
       });
-
       if (error) throw error;
 
       // Safety net: if we're still on this page a few seconds later, the redirect
