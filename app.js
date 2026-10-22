@@ -195,7 +195,7 @@ const supabaseClient = IS_CONFIGURED
 
 // Shown on the loading/login screens so it's always obvious which build is
 // actually running in the browser (rules out stale-cache confusion).
-const APP_BUILD = "build 2026-10-21b";
+const APP_BUILD = "build 2026-10-22a";
 
 /**
  * RemoteStore - reads/writes the signed-in user's single workspace row in

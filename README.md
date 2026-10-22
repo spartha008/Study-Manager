@@ -96,6 +96,8 @@ A modern, responsive, and beginner-friendly web application built for students t
    - Light blue and crisp white palette (`#f0f9ff`, `#e0f2fe`, `#38bdf8`, `#0284c7`) with a matching dark counterpart.
    - Rounded cards with smooth shadows and micro-animations.
    - Mobile slide-out drawer navigation and desktop sidebar.
+   - Phone-tuned calendar: full-width month grid with ~50px day cells, events shown as colored dots (full details in the agenda below), and no horizontal scrolling from 360px up.
+   - 40px+ touch targets for primary buttons, modals that fit and scroll inside the screen, and a compact 2×2 dashboard metrics grid on small screens.
 
 ---
 
