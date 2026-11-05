@@ -297,64 +297,360 @@ class SoundFX {
   }
 }
 
-class ConfettiFX {
-  static launch() {
-    const canvas = document.getElementById("confetti-canvas");
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+// =============================================================================
+// 3b. Motion helpers — count-ups, exits, ripples, spotlight, theme reveal
+// =============================================================================
+const ENTER_SELECTOR = [
+  ".dash-hero-main", ".dash-next", ".stat-tile", ".dash-grid > .card", ".dash-quote",
+  ".toolbar", ".quick-add-row", ".list-summary", ".task-group",
+  ".calendar-card", ".calendar-agenda-card", ".day-header-summary", ".schedule-card", ".week-col",
+  ".notes-section-label", ".note-card", ".marks-insights > .card", ".mark-row",
+  ".timer-card", ".progress-metrics-column > .card",
+  ".journal-lock", ".journal-list-card", ".journal-editor-card",
+  ".deck-card", ".fc-header", ".fc-add", ".fc-row", ".study-wrap", ".empty-state"
+].join(", ");
 
-    const particles = [];
-    const colors = ["#4655d4", "#8d97ff", "#1f8a5b", "#e8a540", "#7647d6", "#d24672", "#2585c4"];
+const RIPPLE_SELECTOR = ".btn, .icon-btn, .nav-item, .bnav-item, .bnav-add, .segmented-btn, .menu-item, .day-chip, .stat-tile, .palette-item, .choice span, .fo-btn, .sidebar-search, .search-trigger";
 
-    for (let i = 0; i < 65; i++) {
-      particles.push({
-        x: canvas.width / 2 + (Math.random() * 200 - 100),
-        y: canvas.height / 2 + (Math.random() * 100 - 50),
-        r: Math.random() * 6 + 4,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        vx: (Math.random() - 0.5) * 12,
-        vy: (Math.random() - 0.8) * 14,
-        gravity: 0.3,
-        tilt: Math.random() * 10,
-        tiltAngle: 0,
-        tiltAngleInc: (Math.random() * 0.08) + 0.04,
-        alpha: 1
-      });
+const Motion = {
+  _counters: new WeakMap(),
+
+  reduced() {
+    return Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  },
+
+  /** Web Animations API wrapper that respects reduced motion. */
+  animate(el, keyframes, options) {
+    if (!el || typeof el.animate !== "function" || this.reduced()) return null;
+    return el.animate(keyframes, options);
+  },
+
+  /** Counts an element's number up (or down) to `value`. */
+  countTo(el, value, format = (v) => String(Math.round(v))) {
+    if (!el) return;
+    const to = Number(value) || 0;
+    const running = this._counters.get(el);
+    if (running && running.to === to) return;
+    const hasPrev = el.dataset.num !== undefined && el.dataset.num !== "";
+    const from = running ? running.current : (hasPrev ? Number(el.dataset.num) : 0);
+    el.dataset.num = String(to);
+    if (running) {
+      cancelAnimationFrame(running.raf);
+      clearTimeout(running.fallback);
     }
+    if (this.reduced() || from === to || document.hidden) {
+      this._counters.delete(el);
+      el.textContent = format(to);
+      return;
+    }
+    const duration = 850;
+    const state = { to, current: from, raf: 0, fallback: 0 };
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      state.current = from + (to - from) * eased;
+      el.textContent = format(state.current);
+      if (t < 1) state.raf = requestAnimationFrame(step);
+      else this._counters.delete(el);
+    };
+    // If frames are throttled (background tab), still land on the right number.
+    state.fallback = setTimeout(() => {
+      if (this._counters.get(el) === state) {
+        cancelAnimationFrame(state.raf);
+        this._counters.delete(el);
+        el.textContent = format(to);
+      }
+    }, duration + 400);
+    this._counters.set(el, state);
+    el.textContent = format(from);
+    state.raf = requestAnimationFrame(step);
+  },
 
-    let animationFrame;
-    function render() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      let alive = false;
+  /** Collapses an element's height to zero (slide + fade), then calls done(). */
+  collapseOut(el, done) {
+    if (!el || !el.isConnected || this.reduced()) {
+      done();
+      return;
+    }
+    el.style.boxSizing = "border-box";
+    el.style.height = `${el.offsetHeight}px`;
+    void el.offsetHeight;
+    el.classList.add("is-leaving");
+    el.style.height = "0px";
+    el.style.paddingTop = "0px";
+    el.style.paddingBottom = "0px";
+    el.style.marginTop = "0px";
+    el.style.marginBottom = "0px";
+    el.style.borderTopWidth = "0px";
+    el.style.borderBottomWidth = "0px";
+    setTimeout(done, 330);
+  },
 
-      particles.forEach(p => {
-        p.vy += p.gravity;
-        p.x += p.vx;
-        p.y += p.vy;
-        p.tiltAngle += p.tiltAngleInc;
-        p.alpha -= 0.015;
+  ripple(e) {
+    if (e.button !== 0 || this.reduced()) return;
+    const host = e.target.closest && e.target.closest(RIPPLE_SELECTOR);
+    if (!host || host.disabled) return;
+    const rect = host.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height) * 2.2;
+    const wave = document.createElement("span");
+    wave.className = "ripple";
+    wave.style.width = wave.style.height = `${size}px`;
+    wave.style.left = `${e.clientX - rect.left - size / 2}px`;
+    wave.style.top = `${e.clientY - rect.top - size / 2}px`;
+    host.appendChild(wave);
+    wave.addEventListener("animationend", () => wave.remove());
+    setTimeout(() => wave.remove(), 900);
+  },
 
-        if (p.alpha > 0) {
-          alive = true;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-          ctx.fillStyle = p.color;
-          ctx.globalAlpha = Math.max(0, p.alpha);
-          ctx.fill();
-        }
-      });
-      ctx.globalAlpha = 1;
+  spotlight(e) {
+    if (e.pointerType && e.pointerType !== "mouse") return;
+    const el = e.target.closest && e.target.closest(".card, .stat-tile, .note-card");
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    el.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+    el.style.setProperty("--my", `${e.clientY - rect.top}px`);
+  },
 
-      if (alive) {
-        animationFrame = requestAnimationFrame(render);
-      } else {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        cancelAnimationFrame(animationFrame);
+  bindGlobal() {
+    if (this._bound) return;
+    this._bound = true;
+    document.addEventListener("pointerdown", (e) => this.ripple(e), { passive: true });
+    document.addEventListener("pointermove", (e) => this.spotlight(e), { passive: true });
+  },
+
+  /** Runs `apply` (which flips the theme) as a circular reveal from `origin`. */
+  themeSwitch(apply, origin) {
+    if (!document.startViewTransition || this.reduced()) {
+      apply();
+      return;
+    }
+    const root = document.documentElement;
+    let x = window.innerWidth - 60;
+    let y = 30;
+    if (origin && typeof origin.getBoundingClientRect === "function") {
+      const r = origin.getBoundingClientRect();
+      if (r.width) {
+        x = r.left + r.width / 2;
+        y = r.top + r.height / 2;
       }
     }
-    render();
+    root.style.setProperty("--vt-x", `${x}px`);
+    root.style.setProperty("--vt-y", `${y}px`);
+    root.classList.add("theme-transition");
+    try {
+      const transition = document.startViewTransition(apply);
+      transition.finished.finally(() => root.classList.remove("theme-transition"));
+    } catch (e) {
+      root.classList.remove("theme-transition");
+      apply();
+    }
+  }
+};
+
+// =============================================================================
+// 3c. Ambient sound for focus mode — generated noise, no audio files needed
+// =============================================================================
+const AmbientSound = {
+  ctx: null,
+  gain: null,
+  source: null,
+  kind: "off",
+  volume: 0.5,
+
+  ensure() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      this.ctx = new AC();
+      this.gain = this.ctx.createGain();
+      this.gain.gain.value = 0;
+      this.gain.connect(this.ctx.destination);
+    }
+    if (this.ctx.state === "suspended") this.ctx.resume();
+    return true;
+  },
+
+  makeBuffer(kind) {
+    const ctx = this.ctx;
+    const length = Math.floor(ctx.sampleRate * 4);
+    const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buffer.getChannelData(ch);
+      let last = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+      for (let i = 0; i < length; i++) {
+        const white = Math.random() * 2 - 1;
+        if (kind === "brown") {
+          last = (last + 0.02 * white) / 1.02;
+          data[i] = last * 3.5;
+        } else if (kind === "rain") {
+          // Pink noise (Paul Kellet) — filtered below into a soft rainfall.
+          b0 = 0.99886 * b0 + white * 0.0555179;
+          b1 = 0.99332 * b1 + white * 0.0750759;
+          b2 = 0.969 * b2 + white * 0.153852;
+          b3 = 0.8665 * b3 + white * 0.3104856;
+          b4 = 0.55 * b4 + white * 0.5329522;
+          b5 = -0.7616 * b5 - white * 0.016898;
+          data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+          b6 = white * 0.115926;
+        } else {
+          data[i] = white * 0.3;
+        }
+      }
+    }
+    return buffer;
+  },
+
+  play(kind) {
+    if (!kind || kind === "off") {
+      this.stop();
+      return;
+    }
+    if (!this.ensure()) return;
+    const ctx = this.ctx;
+    this.stopSource();
+    const src = ctx.createBufferSource();
+    src.buffer = this.makeBuffer(kind);
+    src.loop = true;
+    let node = src;
+    if (kind === "rain") {
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 450;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 6500;
+      src.connect(hp);
+      hp.connect(lp);
+      node = lp;
+    } else if (kind === "brown") {
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 1000;
+      src.connect(lp);
+      node = lp;
+    }
+    node.connect(this.gain);
+    src.start();
+    this.source = src;
+    this.kind = kind;
+    const now = ctx.currentTime;
+    this.gain.gain.cancelScheduledValues(now);
+    this.gain.gain.setValueAtTime(0, now);
+    this.gain.gain.linearRampToValueAtTime(this.volume * 0.6, now + 1.5);
+  },
+
+  setVolume(v) {
+    this.volume = Math.max(0, Math.min(1, v));
+    if (this.ctx && this.source) this.gain.gain.setTargetAtTime(this.volume * 0.6, this.ctx.currentTime, 0.15);
+  },
+
+  stopSource() {
+    if (!this.source) return;
+    try { this.source.stop(); } catch (e) { /* already stopped */ }
+    this.source.disconnect();
+    this.source = null;
+  },
+
+  stop() {
+    this.kind = "off";
+    if (!this.ctx || !this.source) return;
+    const src = this.source;
+    this.source = null;
+    const now = this.ctx.currentTime;
+    this.gain.gain.cancelScheduledValues(now);
+    this.gain.gain.setValueAtTime(this.gain.gain.value, now);
+    this.gain.gain.linearRampToValueAtTime(0, now + 0.6);
+    setTimeout(() => {
+      try { src.stop(); } catch (e) { /* already stopped */ }
+      src.disconnect();
+    }, 700);
+  }
+};
+
+class ConfettiFX {
+  /** Bursts confetti from (x, y) — defaults to the middle of the screen. */
+  static launch(x, y) {
+    const canvas = document.getElementById("confetti-canvas");
+    if (!canvas || Motion.reduced()) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+    }
+    ConfettiFX.dpr = dpr;
+    ConfettiFX.particles = ConfettiFX.particles || [];
+    const ox = typeof x === "number" ? x : w / 2;
+    const oy = typeof y === "number" ? y : h / 2;
+    const colors = ["#5b4cf0", "#8b5cf6", "#ec4899", "#22c3a6", "#f5b83d", "#38bdf8", "#ff7a59"];
+    for (let i = 0; i < 110; i++) {
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.15;
+      const speed = 6 + Math.random() * 11;
+      ConfettiFX.particles.push({
+        x: ox,
+        y: oy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        w: 6 + Math.random() * 6,
+        h: 3 + Math.random() * 5,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.35,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        circle: Math.random() < 0.22,
+        life: 0,
+        maxLife: 90 + Math.random() * 60,
+        wobble: Math.random() * 10
+      });
+    }
+    if (!ConfettiFX.running) {
+      ConfettiFX.running = true;
+      requestAnimationFrame(ConfettiFX.frame);
+    }
+  }
+
+  static frame() {
+    const canvas = document.getElementById("confetti-canvas");
+    if (!canvas) { ConfettiFX.running = false; return; }
+    const ctx = canvas.getContext("2d");
+    const dpr = ConfettiFX.dpr || 1;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ConfettiFX.particles = ConfettiFX.particles.filter(p => p.life < p.maxLife);
+    for (const p of ConfettiFX.particles) {
+      p.life++;
+      p.vy += 0.32;
+      p.vx *= 0.985;
+      p.vy *= 0.985;
+      p.x += p.vx + Math.sin((p.life + p.wobble) / 7) * 0.7;
+      p.y += p.vy;
+      p.rot += p.vr;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, (p.maxLife - p.life) / 30));
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      if (p.circle) {
+        ctx.beginPath();
+        ctx.arc(0, 0, p.h * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.scale(1, Math.cos(p.life / 6));
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      }
+      ctx.restore();
+    }
+    if (ConfettiFX.particles.length) {
+      requestAnimationFrame(ConfettiFX.frame);
+    } else {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ConfettiFX.running = false;
+    }
   }
 }
 
@@ -362,13 +658,14 @@ class ConfettiFX {
 // 4. Main Application Class
 // =============================================================================
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const TAB_ORDER = ["dashboard", "assignments", "calendar", "timetable", "notes", "marks", "progress", "journal"];
+const TAB_ORDER = ["dashboard", "assignments", "calendar", "timetable", "notes", "flashcards", "marks", "progress", "journal"];
 const TAB_META = {
   dashboard: { title: "Today", subtitle: null, icon: "fa-solid fa-house" },
   assignments: { title: "Assignments", subtitle: "Coursework, homework and projects — grouped by when they're due", icon: "fa-solid fa-list-check" },
   calendar: { title: "Calendar", subtitle: "Tests, classes and events, plus every assignment deadline", icon: "fa-regular fa-calendar" },
   timetable: { title: "Timetable", subtitle: "Your weekly study rhythm — sessions repeat every week", icon: "fa-solid fa-table-cells" },
   notes: { title: "Notes", subtitle: "Lecture takeaways, formulas and exam tips", icon: "fa-regular fa-note-sticky" },
+  flashcards: { title: "Flashcards", subtitle: "Spaced repetition — review what's due, skip what you already know", icon: "fa-solid fa-layer-group" },
   marks: { title: "Marks & Grades", subtitle: "Scores, averages and where to focus next", icon: "fa-solid fa-award" },
   progress: { title: "Focus & Progress", subtitle: "Pomodoro timer, focus history and study habits", icon: "fa-solid fa-stopwatch" },
   journal: { title: "Journal", subtitle: "Private and encrypted — one page a day", icon: "fa-solid fa-feather-pointed" }
@@ -380,7 +677,9 @@ const DEFAULT_SETTINGS = {
   focusGoal: 60,
   autoStart: false,
   sounds: true,
-  confetti: true
+  confetti: true,
+  ambient: "off",
+  ambientVolume: 50
 };
 const DEFAULT_SUBJECTS = ["Mathematics", "Physics", "Computer Science", "Chemistry", "Biology", "History", "Literature", "Economics"];
 const IS_MAC = /Mac|iPhone|iPad|iPod/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || "");
@@ -396,6 +695,7 @@ class StudyBuddyApp {
     this.notes = [];
     this.events = [];
     this.marks = [];
+    this.decks = [];
     this.settings = { ...DEFAULT_SETTINGS };
     this.focusLog = {};               // { "YYYY-MM-DD": minutes focused that day }
 
@@ -422,8 +722,16 @@ class StudyBuddyApp {
     this._persistTimer = null;
     this._reminderTick = null;
     this._initialized = false;
-    this._flashTaskId = null;
+    this._flash = null;
     this._lastSubject = "";
+    this._editingSubtasks = [];
+    this._expandedTasks = new Set();
+
+    // Flashcards
+    this.fcView = "decks"; // decks | deck | study
+    this.fcDeckId = null;
+    this.fcSession = null;
+    this.deckSearch = "";
 
     this.currentTab = "dashboard";
     this.selectedDay = this.todayName();
@@ -489,6 +797,12 @@ class StudyBuddyApp {
     this.setupMarkEvents();
     this.setupJournalEvents();
     this.setupPomodoroEvents();
+    this.setupFlashcards();
+    this.setupFocusMode();
+    this.setupSubtaskEditor();
+    this.setupGradeCalculator();
+    this.setupSidebarCollapse();
+    Motion.bindGlobal();
     this.setupQuotes();
     this.setupTheme();
     this.startReminderTicker();
@@ -636,6 +950,7 @@ class StudyBuddyApp {
       notes: this.notes,
       events: this.events,
       marks: this.marks,
+      decks: this.decks,
       journal: this.journalBlob,
       focusMinutes: this.focusMinutes,
       pomodoroSessions: this.pomodoroSessions,
@@ -654,6 +969,7 @@ class StudyBuddyApp {
     this.notes = Array.isArray(s.notes) ? s.notes : [];
     this.events = Array.isArray(s.events) ? s.events : [];
     this.marks = Array.isArray(s.marks) ? s.marks : [];
+    this.decks = Array.isArray(s.decks) ? s.decks.map(d => this.normalizeDeck(d)).filter(Boolean) : [];
     this.journalBlob = (s.journal && typeof s.journal === "object") ? s.journal : null;
     this.focusMinutes = Number(s.focusMinutes) || 0;
     this.pomodoroSessions = Number(s.pomodoroSessions) || 0;
@@ -697,7 +1013,7 @@ class StudyBuddyApp {
   looksLikeWorkspace(obj) {
     return Boolean(obj) && typeof obj === "object" && (
       Array.isArray(obj.tasks) || Array.isArray(obj.timetable) || Array.isArray(obj.notes) ||
-      Array.isArray(obj.events) || Array.isArray(obj.marks) || Boolean(obj.journal)
+      Array.isArray(obj.events) || Array.isArray(obj.marks) || Array.isArray(obj.decks) || Boolean(obj.journal)
     );
   }
 
@@ -720,7 +1036,22 @@ class StudyBuddyApp {
   setupNavigation() {
     document.querySelectorAll(".nav-item").forEach(btn => {
       btn.addEventListener("click", () => this.switchTab(btn.dataset.tab));
+      const label = btn.querySelector("span")?.textContent?.trim();
+      if (label) btn.title = label;
     });
+
+    // Sliding "active" pill behind the nav items.
+    const menu = document.querySelector(".nav-menu");
+    if (menu && !menu.querySelector(".nav-indicator")) {
+      this._navIndicator = document.createElement("span");
+      this._navIndicator.className = "nav-indicator";
+      this._navIndicator.setAttribute("aria-hidden", "true");
+      menu.prepend(this._navIndicator);
+      if (window.ResizeObserver) new ResizeObserver(() => this.updateNavIndicator(true)).observe(menu);
+      window.addEventListener("resize", () => this.updateNavIndicator(true));
+    } else if (menu) {
+      this._navIndicator = menu.querySelector(".nav-indicator");
+    }
 
     // Any other element carrying data-tab (stat tiles, "View all" links, bottom nav).
     document.addEventListener("click", (e) => {
@@ -788,6 +1119,7 @@ class StudyBuddyApp {
       item.classList.toggle("active", active);
     });
 
+    if (changed) this.resetCounters(document.getElementById(`tab-${tabId}`));
     document.querySelectorAll(".tab-pane").forEach(pane => {
       pane.classList.toggle("active", pane.id === `tab-${tabId}`);
     });
@@ -801,13 +1133,21 @@ class StudyBuddyApp {
       this.lockJournal();
     }
 
-    this.updatePageHeader();
+    this.updatePageHeader(changed);
     if (changed) window.scrollTo({ top: 0, behavior: "auto" });
     this.renderAll();
+    this.updateNavIndicator();
+    if (changed) this.playEnter(tabId);
   }
 
-  updatePageHeader() {
+  updatePageHeader(animate = false) {
     const meta = TAB_META[this.currentTab] || TAB_META.dashboard;
+    if (animate && !Motion.reduced()) {
+      const wrap = document.querySelector(".topbar-title");
+      wrap?.classList.remove("swap");
+      void wrap?.offsetWidth;
+      wrap?.classList.add("swap");
+    }
     const titleEl = document.getElementById("page-title");
     const subEl = document.getElementById("page-subtitle");
     if (titleEl) titleEl.textContent = meta.title;
@@ -869,10 +1209,28 @@ class StudyBuddyApp {
     closeBtn.addEventListener("click", dismiss);
     toast.appendChild(closeBtn);
 
+    const duration = options.duration || (options.action ? 6500 : 3400);
+    const bar = document.createElement("span");
+    bar.className = "toast-progress";
+    bar.style.animationDuration = `${duration}ms`;
+    toast.appendChild(bar);
+
     container.appendChild(toast);
     while (container.children.length > 4) container.firstElementChild.remove();
 
-    timer = setTimeout(dismiss, options.duration || (options.action ? 6500 : 3400));
+    let remaining = duration;
+    let startedAt = Date.now();
+    const startTimer = () => {
+      startedAt = Date.now();
+      clearTimeout(timer);
+      timer = setTimeout(dismiss, remaining);
+    };
+    toast.addEventListener("mouseenter", () => {
+      clearTimeout(timer);
+      remaining = Math.max(900, remaining - (Date.now() - startedAt));
+    });
+    toast.addEventListener("mouseleave", startTimer);
+    startTimer();
     return dismiss;
   }
 
@@ -884,10 +1242,11 @@ class StudyBuddyApp {
     const list = this[listName];
     const index = list.findIndex(item => item.id === id);
     if (index === -1) return;
+    const el = this.findItemElement(listName, id);
     const [removed] = list.splice(index, 1);
     if (listName === "tasks" && this.timerTaskId === id) this.timerTaskId = "";
     this.schedulePersist();
-    this.renderAll();
+    Motion.collapseOut(el, () => this.renderAll());
 
     this.showToast(`${label} deleted`, "info", {
       action: {
@@ -896,6 +1255,7 @@ class StudyBuddyApp {
           const target = this[listName];
           if (target.some(item => item.id === removed.id)) return;
           target.splice(Math.min(index, target.length), 0, removed);
+          this._flash = { listName, id: removed.id };
           this.schedulePersist();
           this.renderAll();
         }
@@ -961,6 +1321,8 @@ class StudyBuddyApp {
       "event-modal": ["close-event-modal-btn", "cancel-event-btn"],
       "mark-modal": ["close-mark-modal-btn", "cancel-mark-btn"],
       "settings-modal": ["close-settings-modal-btn", "cancel-settings-btn"],
+      "deck-modal": ["close-deck-modal-btn", "cancel-deck-btn"],
+      "card-modal": ["close-card-modal-btn", "cancel-card-btn"],
       "journal-password-modal": ["close-journal-password-modal-btn", "cancel-journal-password-btn"],
       "journal-question-modal": ["close-journal-question-modal-btn", "cancel-journal-question-btn"]
     };
@@ -990,6 +1352,11 @@ class StudyBuddyApp {
       if (open.length) {
         e.preventDefault();
         this.closeModal(open[open.length - 1]);
+        return;
+      }
+      if (this.isFocusModeOpen()) {
+        e.preventDefault();
+        this.closeFocusMode();
         return;
       }
       this.closeDrawer?.();
@@ -1100,6 +1467,7 @@ class StudyBuddyApp {
     }
     menu.classList.add("open");
     anchor?.setAttribute("aria-expanded", "true");
+    if (asSheet) anchor?.classList.add("is-open");
     menu.querySelector(".menu-item")?.focus({ preventScroll: true });
   }
 
@@ -1108,6 +1476,7 @@ class StudyBuddyApp {
     if (!menu || !menu.classList.contains("open")) return;
     menu.classList.remove("open");
     document.getElementById("quick-add-btn")?.setAttribute("aria-expanded", "false");
+    document.getElementById("bnav-add-btn")?.classList.remove("is-open");
   }
 
   createItem(kind) {
@@ -1117,6 +1486,7 @@ class StudyBuddyApp {
       case "slot": this.openTimetableModal(); break;
       case "note": this.openNoteModal(); break;
       case "mark": this.openMarkModal(); break;
+      case "deck": this.openDeckModal(); break;
       default: break;
     }
   }
@@ -1174,6 +1544,10 @@ class StudyBuddyApp {
     this.paletteIndex = 0;
     this.renderPalette();
     input.focus();
+    const palette = backdrop.querySelector(".palette");
+    palette?.classList.add("is-opening");
+    clearTimeout(this._paletteOpenTimer);
+    this._paletteOpenTimer = setTimeout(() => palette?.classList.remove("is-opening"), 600);
   }
 
   closePalette() {
@@ -1187,6 +1561,7 @@ class StudyBuddyApp {
   }
 
   paletteCommands() {
+    const due = this.totalDueCards();
     const nav = TAB_ORDER.map((tab, i) => ({
       group: "nav",
       title: `Go to ${TAB_META[tab].title}`,
@@ -1201,6 +1576,9 @@ class StudyBuddyApp {
       { group: "create", title: "New note", icon: "fa-regular fa-note-sticky", hint: "N", keywords: "add create note", run: () => this.openNoteModal() },
       { group: "create", title: "Record a mark", icon: "fa-solid fa-award", hint: "M", keywords: "add create mark grade score result", run: () => this.openMarkModal() },
       { group: "create", title: "Add timetable slot", icon: "fa-solid fa-table-cells", hint: "S", keywords: "add create slot session timetable lecture", run: () => this.openTimetableModal() },
+      { group: "create", title: "New flashcard deck", icon: "fa-solid fa-layer-group", hint: "D", keywords: "add create flashcard deck cards", run: () => this.openDeckModal() },
+      { group: "create", title: due ? `Review ${due} due flashcard${due === 1 ? "" : "s"}` : "Review flashcards", icon: "fa-solid fa-rotate", hint: "R", keywords: "review flashcards study spaced repetition quiz", run: () => this.reviewDueCards() },
+      { group: "create", title: "Full-screen focus mode", icon: "fa-solid fa-expand", hint: "⇧F", keywords: "focus mode fullscreen immersive ambient rain noise", run: () => { this.switchTab("progress"); this.openFocusMode(); } },
       {
         group: "create",
         title: this.isTimerRunning ? "Pause focus timer" : "Start a focus session",
@@ -1277,6 +1655,27 @@ class StudyBuddyApp {
         this.openTimetableModal(s);
       }
     }));
+    this.decks.forEach(deck => {
+      const dueCount = this.deckDueCards(deck).length;
+      items.push({
+        group: "Flashcards",
+        title: deck.name,
+        sub: `Deck · ${deck.cards.length} cards${dueCount ? ` · ${dueCount} due` : ""}`,
+        icon: "fa-solid fa-layer-group",
+        color: this.subjectColor(deck.subject || deck.name),
+        haystack: `${deck.name} ${deck.subject}`,
+        run: () => { this.switchTab("flashcards"); this.openDeck(deck.id); }
+      });
+      deck.cards.forEach(card => items.push({
+        group: "Flashcards",
+        title: card.front,
+        sub: `${deck.name} · ${card.back.replace(/\s+/g, " ").slice(0, 60)}`,
+        icon: "fa-regular fa-clone",
+        color: this.subjectColor(deck.subject || deck.name),
+        haystack: `${card.front} ${card.back}`,
+        run: () => { this.switchTab("flashcards"); this.openDeck(deck.id); this.openCardModal(card); }
+      }));
+    });
     return items;
   }
 
@@ -1315,7 +1714,7 @@ class StudyBuddyApp {
           byGroup[item.group] = byGroup[item.group] || [];
           if (byGroup[item.group].length < 6) byGroup[item.group].push(item);
         });
-      ["Assignments", "Events", "Notes", "Marks", "Timetable"].forEach(label => {
+      ["Assignments", "Events", "Notes", "Flashcards", "Marks", "Timetable"].forEach(label => {
         if (byGroup[label]) groups.push({ label, items: byGroup[label] });
       });
     }
@@ -1334,7 +1733,7 @@ class StudyBuddyApp {
       ${group.items.map(item => {
         const i = index++;
         return `
-          <button type="button" class="palette-item ${i === this.paletteIndex ? "active" : ""}" data-index="${i}" role="option" aria-selected="${i === this.paletteIndex}">
+          <button type="button" class="palette-item ${i === this.paletteIndex ? "active" : ""}" data-index="${i}" role="option" aria-selected="${i === this.paletteIndex}" style="--pi: ${Math.min(i, 14)}">
             <span class="palette-item-icon" ${item.color ? `style="--subj: ${item.color}"` : ""}><i class="${item.icon}"></i></span>
             <span class="palette-item-text">
               <span class="palette-item-title">${this.highlightMatch(item.title, query)}</span>
@@ -1387,7 +1786,7 @@ class StudyBuddyApp {
       if (document.getElementById("app-layout")?.classList.contains("hidden")) return;
 
       const key = e.key;
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && key.toLowerCase() === "k") {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && key.toLowerCase() === "k" && !this.isFocusModeOpen()) {
         e.preventDefault();
         if (this.isPaletteOpen()) this.closePalette();
         else this.openPalette();
@@ -1396,6 +1795,7 @@ class StudyBuddyApp {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (this.isTypingTarget(e.target)) return;
       if (this.isPaletteOpen() || document.querySelector(".modal-backdrop.active")) return;
+      if (this.isFocusModeOpen() || this.isStudying()) return;
 
       const lower = key.toLowerCase();
       let handled = true;
@@ -1406,9 +1806,12 @@ class StudyBuddyApp {
       else if (lower === "n") this.openNoteModal();
       else if (lower === "m") this.openMarkModal();
       else if (lower === "s") this.openTimetableModal();
+      else if (lower === "d") this.openDeckModal();
+      else if (lower === "r") this.reviewDueCards();
+      else if (lower === "f" && e.shiftKey) { this.switchTab("progress"); this.openFocusMode(); }
       else if (lower === "f") this.toggleTimer();
-      else if (lower === "t") this.toggleTheme();
-      else if (/^[1-8]$/.test(key)) this.switchTab(TAB_ORDER[Number(key) - 1]);
+      else if (lower === "t") this.toggleTheme(document.getElementById("theme-toggle"));
+      else if (/^[1-9]$/.test(key)) this.switchTab(TAB_ORDER[Number(key) - 1]);
       else handled = false;
       if (handled) e.preventDefault();
     });
@@ -1563,6 +1966,9 @@ class StudyBuddyApp {
     this.notes = [];
     this.events = [];
     this.marks = [];
+    this.decks = [];
+    this.fcSession = null;
+    this.fcView = "decks";
     this.journalBlob = null;
     this.focusMinutes = 0;
     this.pomodoroSessions = 0;
@@ -1655,6 +2061,14 @@ class StudyBuddyApp {
       if (action === "toggle") this.toggleTaskCompletion(id);
       else if (action === "delete") this.deleteTask(id);
       else if (action === "focus") this.focusOnTask(id);
+      else if (action === "subtasks") {
+        if (this._expandedTasks.has(id)) this._expandedTasks.delete(id);
+        else this._expandedTasks.add(id);
+        this.renderTasks();
+      } else if (action === "subtask") {
+        const subId = e.target.closest("[data-sub-id]")?.dataset.subId;
+        if (subId) this.toggleSubtask(id, subId);
+      }
       else if (action === "edit") this.openTaskModal(this.tasks.find(t => t.id === id));
     });
   }
@@ -1683,6 +2097,7 @@ class StudyBuddyApp {
       document.getElementById("task-estimated-time-input").value = task.estimatedTime || 45;
       document.getElementById("task-description-input").value = task.description || "";
       document.getElementById("save-task-btn").textContent = "Save changes";
+      this._editingSubtasks = (Array.isArray(task.subtasks) ? task.subtasks : []).map(sub => ({ ...sub }));
     } else {
       titleEl.textContent = "New assignment";
       document.getElementById("task-id").value = "";
@@ -1692,6 +2107,7 @@ class StudyBuddyApp {
       document.getElementById("task-due-date-input").value = prefill.dueDate || this.toDateKey(tomorrow);
       setPriority(prefill.priority || "medium");
       document.getElementById("save-task-btn").textContent = "Add assignment";
+      this._editingSubtasks = [];
       if (prefill.title) {
         const subjectInput = document.getElementById("task-subject-input");
         if (this._lastSubject) subjectInput.value = this._lastSubject;
@@ -1699,6 +2115,9 @@ class StudyBuddyApp {
       }
     }
 
+    const newStep = document.getElementById("subtask-new-input");
+    if (newStep) newStep.value = "";
+    this.renderSubtaskEditor();
     this.openModal(modal, focusTarget);
     if (focusTarget && focusTarget.value) focusTarget.select();
   }
@@ -1711,6 +2130,11 @@ class StudyBuddyApp {
     const dueDate = document.getElementById("task-due-date-input").value;
     const estimatedTime = parseInt(document.getElementById("task-estimated-time-input").value, 10) || 45;
     const description = document.getElementById("task-description-input").value.trim();
+    const pendingStep = document.getElementById("subtask-new-input")?.value.trim();
+    if (pendingStep) this._editingSubtasks.push({ id: `st-${Date.now()}`, text: pendingStep, done: false });
+    const subtasks = this._editingSubtasks
+      .map(sub => ({ ...sub, text: String(sub.text || "").trim() }))
+      .filter(sub => sub.text);
 
     if (!title || !subject || !dueDate) {
       this.showToast("Please fill in the title, subject and due date", "alert");
@@ -1720,7 +2144,7 @@ class StudyBuddyApp {
     if (id) {
       const index = this.tasks.findIndex(t => t.id === id);
       if (index !== -1) {
-        this.tasks[index] = { ...this.tasks[index], title, subject, priority, dueDate, estimatedTime, description };
+        this.tasks[index] = { ...this.tasks[index], title, subject, priority, dueDate, estimatedTime, description, subtasks };
         this.showToast("Assignment updated");
       }
     } else {
@@ -1732,11 +2156,12 @@ class StudyBuddyApp {
         dueDate,
         estimatedTime,
         description,
+        subtasks,
         completed: false,
         createdAt: new Date().toISOString()
       };
       this.tasks.unshift(newTask);
-      this._flashTaskId = newTask.id;
+      this._flash = { listName: "tasks", id: newTask.id };
       if (this.taskStatusFilter === "completed") this.taskStatusFilter = "pending";
       this.showToast(`Added “${title}” — ${this.formatDueDateBadge(dueDate).text.toLowerCase()}`);
     }
@@ -1751,14 +2176,16 @@ class StudyBuddyApp {
   toggleTaskCompletion(id) {
     const task = this.tasks.find(t => t.id === id);
     if (!task) return;
+    const el = this.findItemElement("tasks", id);
 
     task.completed = !task.completed;
     task.completedAt = task.completed ? new Date().toISOString() : null;
     this.schedulePersist();
 
     if (task.completed) {
+      const check = el?.querySelector(".check");
       this.playSound("success");
-      this.celebrate();
+      this.celebrate(check || el);
       this.recordActivity();
       if (this.timerTaskId === id) this.timerTaskId = "";
       this.showToast(`Done: ${task.title} 🎉`, "success", {
@@ -1767,11 +2194,25 @@ class StudyBuddyApp {
           onClick: () => {
             task.completed = false;
             task.completedAt = null;
+            this._flash = { listName: "tasks", id };
             this.schedulePersist();
             this.renderAll();
           }
         }
       });
+
+      // Let the check pop and the title strike through before the row leaves.
+      if (el && !Motion.reduced()) {
+        el.classList.add("is-completing");
+        check?.classList.add("checked", "pop");
+        const leaves = el.classList.contains("compact-task-item") ||
+          (el.classList.contains("task-card") && this.taskStatusFilter === "pending");
+        setTimeout(() => {
+          if (leaves) Motion.collapseOut(el, () => this.renderAll());
+          else this.renderAll();
+        }, 420);
+        return;
+      }
     }
 
     this.renderAll();
@@ -1918,11 +2359,6 @@ class StudyBuddyApp {
       </section>
     `).join("");
 
-    if (this._flashTaskId) {
-      const el = container.querySelector(`[data-task-id="${CSS.escape(this._flashTaskId)}"]`);
-      el?.classList.add("flash");
-      this._flashTaskId = null;
-    }
   }
 
   renderTaskCard(task) {
@@ -1930,6 +2366,22 @@ class StudyBuddyApp {
     const priority = PRIORITY_RANK[task.priority] !== undefined ? task.priority : "medium";
     const focused = Number(task.focusMinutes) || 0;
     const dueClass = task.completed ? "" : due.isOverdue ? "overdue" : due.isToday ? "is-today" : "";
+    const subs = Array.isArray(task.subtasks) ? task.subtasks : [];
+    const subsDone = subs.filter(sub => sub.done).length;
+    const expanded = this._expandedTasks.has(task.id);
+    const subtaskToggle = subs.length ? `
+      <button type="button" class="subtask-toggle ${expanded ? "open" : ""}" data-action="subtasks" aria-expanded="${expanded}" title="${expanded ? "Hide" : "Show"} checklist">
+        <i class="fa-solid fa-chevron-right"></i>
+        <span class="task-progress"><span class="task-progress-bar"><span style="width: ${Math.round((subsDone / subs.length) * 100)}%"></span></span>${subsDone}/${subs.length} steps</span>
+      </button>` : "";
+    const subtaskList = subs.length && expanded ? `
+      <ul class="card-subtasks">
+        ${subs.map(sub => `
+          <li class="${sub.done ? "done" : ""}" data-sub-id="${this.escapeHTML(sub.id)}">
+            <button type="button" class="check check-sm ${sub.done ? "checked" : ""}" data-action="subtask" aria-label="${sub.done ? "Mark step as not done" : "Mark step as done"}"><i class="fa-solid fa-check"></i></button>
+            <span>${this.escapeHTML(sub.text)}</span>
+          </li>`).join("")}
+      </ul>` : "";
     return `
       <div class="task-card ${task.completed ? "completed" : ""}" data-task-id="${this.escapeHTML(task.id)}">
         <button type="button" class="check p-${priority} ${task.completed ? "checked" : ""}" data-action="toggle"
@@ -1945,7 +2397,9 @@ class StudyBuddyApp {
             ${!task.completed ? `<span class="priority-flag p-${priority}"><i class="fa-${priority === "low" ? "regular" : "solid"} fa-flag"></i> ${priority[0].toUpperCase() + priority.slice(1)}</span>` : ""}
             <span class="task-meta-item"><i class="fa-regular fa-clock"></i> ~${this.formatMinutes(Number(task.estimatedTime) || 45)}</span>
             ${focused ? `<span class="task-meta-item"><i class="fa-solid fa-stopwatch"></i> ${this.formatMinutes(focused)} focused</span>` : ""}
+            ${subtaskToggle}
           </div>
+          ${subtaskList}
         </div>
         <div class="task-actions">
           ${!task.completed ? `<button type="button" class="icon-btn icon-btn-sm" data-action="focus" title="Start a focus session on this" aria-label="Focus on this"><i class="fa-solid fa-play"></i></button>` : ""}
@@ -2127,6 +2581,7 @@ class StudyBuddyApp {
         day, title, subject, type, startTime, endTime, location,
         doneDates: []
       });
+      this._flash = { listName: "timetable", id: this.timetable[this.timetable.length - 1].id };
       this.showToast(`Added to ${day}s`);
     }
 
@@ -2220,7 +2675,7 @@ class StudyBuddyApp {
       const now = this.isSlotNow(slot);
       const id = this.escapeHTML(slot.id);
       return `
-        <div class="schedule-card ${done ? "is-done" : ""} ${now ? "is-now" : ""}" style="--subj: ${this.subjectColor(slot.subject)}">
+        <div class="schedule-card ${done ? "is-done" : ""} ${now ? "is-now" : ""}" data-slot-id="${id}" style="--subj: ${this.subjectColor(slot.subject)}">
           <div class="schedule-time-block">
             <span class="time-range">${this.formatHM(slot.startTime)}</span>
             <span class="time-end">to ${this.formatHM(slot.endTime)}</span>
@@ -2369,6 +2824,7 @@ class StudyBuddyApp {
       }
     } else {
       this.notes.unshift({ id: "note-" + Date.now(), title, subject, color, content, pinned, updatedAt, updatedAtISO });
+      this._flash = { listName: "notes", id: this.notes[0].id };
       this.showToast("Note created");
     }
 
@@ -2660,6 +3116,7 @@ class StudyBuddyApp {
     const bar = document.getElementById("sidebar-timer-bar");
     if (bar) bar.style.width = `${fraction * 100}%`;
 
+    this.renderFocusOverlay(true);
     this.updateDocumentTitle();
   }
 
@@ -2692,6 +3149,8 @@ class StudyBuddyApp {
     const sidebarTag = document.getElementById("sidebar-timer-mode");
     if (sidebarTag) sidebarTag.textContent = mode === "pomodoro" ? "Focus" : mode === "shortBreak" ? "Break" : "Rest";
     document.getElementById("nav-timer-live")?.classList.toggle("hidden", !running);
+    document.getElementById("timer-card")?.classList.toggle("is-running", running);
+    document.getElementById("sidebar-widget")?.classList.toggle("is-running", running);
 
     // Task picker
     const select = document.getElementById("timer-task-select");
@@ -2725,6 +3184,7 @@ class StudyBuddyApp {
       if (filled === 0 && this.cycleCount > 0 && mode === "longBreak") filled = 4;
       dots.innerHTML = [0, 1, 2, 3].map(i => `<span class="cycle-dot ${i < filled ? "filled" : ""}"></span>`).join("");
     }
+    this.renderFocusOverlay();
     this.updateDocumentTitle();
   }
 
@@ -2841,18 +3301,21 @@ class StudyBuddyApp {
     });
 
     document.getElementById("cal-prev-btn")?.addEventListener("click", () => {
+      this._calSlide = "prev";
       this.calendarMonth--;
       if (this.calendarMonth < 0) { this.calendarMonth = 11; this.calendarYear--; }
       this.renderCalendar();
     });
 
     document.getElementById("cal-next-btn")?.addEventListener("click", () => {
+      this._calSlide = "next";
       this.calendarMonth++;
       if (this.calendarMonth > 11) { this.calendarMonth = 0; this.calendarYear++; }
       this.renderCalendar();
     });
 
     document.getElementById("cal-today-btn")?.addEventListener("click", () => {
+      this._calSlide = "today";
       this.selectCalendarDate(this.toDateKey(new Date()));
       this.renderCalendar();
       this.renderAgenda();
@@ -2980,6 +3443,7 @@ class StudyBuddyApp {
         reminderMinutes, location, notes,
         createdAt: new Date().toISOString()
       });
+      this._flash = { listName: "events", id: this.events[this.events.length - 1].id };
       this.showToast(`Added to your calendar — ${this.formatLongDate(new Date(`${date}T00:00:00`))}`);
     }
 
@@ -3082,9 +3546,12 @@ class StudyBuddyApp {
     const sidebarStreak = document.getElementById("sidebar-streak");
     if (sidebarStreak) {
       sidebarStreak.innerHTML = `<i class="fa-solid fa-fire"></i> ${streak === 0 ? "No streak yet" : `${streak} day streak`}`;
+      sidebarStreak.classList.toggle("is-hot", streak > 0);
     }
     const statStreak = document.getElementById("stat-streak");
-    if (statStreak) statStreak.textContent = streak;
+    Motion.countTo(statStreak, streak);
+    statStreak?.closest(".stat-tile")?.querySelector(".stat-tile-icon")?.classList.toggle("is-hot", streak > 0);
+    document.querySelector(".streak-banner")?.classList.toggle("is-hot", streak > 0);
 
     const titleEl = document.getElementById("streak-banner-title");
     const textEl = document.getElementById("streak-banner-text");
@@ -3104,8 +3571,8 @@ class StudyBuddyApp {
 
     const container = document.getElementById("weekly-streak-days");
     if (container) {
-      container.innerHTML = this.getWeeklyActivity().map(day => `
-        <div class="day-bubble ${day.done ? "done" : ""} ${day.isToday ? "today" : ""}" title="${day.key}">
+      container.innerHTML = this.getWeeklyActivity().map((day, i) => `
+        <div class="day-bubble ${day.done ? "done" : ""} ${day.isToday ? "today" : ""}" title="${day.key}" style="--d: ${i}">
           <span>${day.label}</span>
           ${day.done ? '<i class="fa-solid fa-check"></i>' : ""}
         </div>
@@ -3222,7 +3689,7 @@ class StudyBuddyApp {
   // ===========================================================================
   setupTheme() {
     this.theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-    document.getElementById("theme-toggle")?.addEventListener("click", () => this.toggleTheme());
+    document.getElementById("theme-toggle")?.addEventListener("click", (e) => this.toggleTheme(e.currentTarget));
 
     // Follow the OS preference until the user makes an explicit choice.
     if (window.matchMedia) {
@@ -3235,8 +3702,9 @@ class StudyBuddyApp {
     }
   }
 
-  toggleTheme() {
-    this.applyTheme(this.theme === "dark" ? "light" : "dark", true);
+  toggleTheme(origin = document.getElementById("theme-toggle")) {
+    const next = this.theme === "dark" ? "light" : "dark";
+    Motion.themeSwitch(() => this.applyTheme(next, true), origin);
   }
 
   applyTheme(theme, persistChoice) {
@@ -3454,6 +3922,7 @@ class StudyBuddyApp {
         title, subject, date, score, maxMarks, type, weight, notes,
         createdAt: new Date().toISOString()
       });
+      this._flash = { listName: "marks", id: this.marks[0].id };
       const percent = this.markPercent({ score, maxMarks });
       this.showToast(`Mark saved — ${percent}% (${this.markGrade(percent)})`);
     }
@@ -3480,18 +3949,20 @@ class StudyBuddyApp {
     this.renderAgenda();
     this.renderTimetable();
     this.renderNotes();
+    this.renderFlashcards();
     this.renderMarks();
     this.renderJournal();
     this.renderStreak();
     this.renderProgressStats();
     this.renderTimerMeta();
     this.updateTimerDisplay();
+    this.applyFlash();
   }
 
   // Populate dynamic subjects into filters and the shared datalist.
   updateSubjectDropdowns() {
     const all = new Set();
-    [this.tasks, this.notes, this.events, this.marks, this.timetable].forEach(list => {
+    [this.tasks, this.notes, this.events, this.marks, this.timetable, this.decks].forEach(list => {
       list.forEach(item => {
         const s = String(item.subject || "").trim();
         if (s) all.add(s);
@@ -3531,6 +4002,7 @@ class StudyBuddyApp {
     setCount("pending-badge", this.tasks.filter(t => !t.completed).length);
     setCount("calendar-badge", this.getUpcomingEvents(99).length);
     setCount("marks-badge", this.marks.length);
+    setCount("flashcards-badge", this.totalDueCards());
   }
 
   // ---------------------------------------------------------------------------
@@ -3548,6 +4020,7 @@ class StudyBuddyApp {
     bind("dash-add-task-btn", () => this.openTaskModal());
     bind("dash-add-event-btn", () => this.openEventModal(null, { date: this.toDateKey(new Date()) }));
     bind("dash-new-note-btn", () => this.openNoteModal());
+    bind("dash-review-btn", () => this.reviewDueCards());
 
     document.getElementById("dashboard-urgent-tasks")?.addEventListener("click", (e) => {
       const item = e.target.closest("[data-task-id]");
@@ -3623,7 +4096,18 @@ class StudyBuddyApp {
     const hour = new Date().getHours();
     const part = hour < 5 ? "Burning the midnight oil" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const greeting = document.getElementById("dash-greeting");
-    if (greeting) greeting.textContent = this.firstName ? `${part}, ${this.firstName}` : part;
+    const greetingText = this.firstName ? `${part}, ${this.firstName}` : part;
+    if (greeting && greeting.dataset.text !== greetingText) {
+      greeting.dataset.text = greetingText;
+      greeting.innerHTML = `${this.escapeHTML(greetingText)} <span class="wave" aria-hidden="true">👋</span>`;
+    }
+    const dueCards = this.totalDueCards();
+    const reviewBtn = document.getElementById("dash-review-btn");
+    if (reviewBtn) {
+      reviewBtn.classList.toggle("hidden", !dueCards);
+      const label = reviewBtn.querySelector("span");
+      if (label) label.textContent = `Review ${dueCards} card${dueCards === 1 ? "" : "s"}`;
+    }
     const dateEl = document.getElementById("dash-date");
     if (dateEl) dateEl.textContent = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
     const summary = document.getElementById("dash-summary");
@@ -3644,6 +4128,8 @@ class StudyBuddyApp {
     if (overdue) parts.push(`<strong>${overdue} overdue</strong>`);
     if (dueWeek) parts.push(`${dueWeek} more due this week`);
     if (sessions) parts.push(`${plural(sessions, "session")} on your timetable`);
+    const cardsDue = this.totalDueCards();
+    if (cardsDue) parts.push(`${plural(cardsDue, "flashcard")} to review`);
 
     let sentence;
     if (parts.length) {
@@ -3674,10 +4160,10 @@ class StudyBuddyApp {
     const goal = Number(this.settings.focusGoal) || 60;
 
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-    set("stat-due-week", dueWeek);
-    set("stat-overdue", overdue);
+    Motion.countTo(document.getElementById("stat-due-week"), dueWeek);
+    Motion.countTo(document.getElementById("stat-overdue"), overdue);
     document.getElementById("stat-overdue")?.closest(".stat-tile")?.classList.toggle("is-alert", overdue > 0);
-    set("stat-focus-today", this.formatMinutes(todayFocus));
+    Motion.countTo(document.getElementById("stat-focus-today"), todayFocus, v => this.formatMinutes(v));
     set("stat-focus-goal-label", `Focus today · goal ${this.formatMinutes(goal)}`);
     const bar = document.getElementById("stat-focus-goal-bar");
     if (bar) bar.style.width = `${Math.min(100, (todayFocus / goal) * 100)}%`;
@@ -3718,6 +4204,7 @@ class StudyBuddyApp {
     const container = document.getElementById("dash-next-up");
     if (!container) return;
     const next = this.getNextUp();
+    container.classList.remove("is-live");
 
     if (!next) {
       container.innerHTML = `
@@ -3749,6 +4236,7 @@ class StudyBuddyApp {
     const isEvent = next.kind === "event";
     const item = next.item;
     const happening = now >= next.start && now <= next.end;
+    container.classList.toggle("is-live", happening);
     const minsToStart = Math.ceil((next.start - now) / 60000);
     const minsToEnd = Math.ceil((next.end - now) / 60000);
     const big = happening ? "Now" : minsToStart < 24 * 60 ? this.formatDurationShort(minsToStart)
@@ -3814,8 +4302,8 @@ class StudyBuddyApp {
       return;
     }
 
-    container.innerHTML = items.map(item => `
-      <div class="tl-item ${item.done ? "is-done" : ""} ${item.now ? "is-now" : ""}" data-kind="${item.kind}" data-id="${this.escapeHTML(item.id)}" style="--subj: ${item.color}">
+    container.innerHTML = items.map((item, i) => `
+      <div class="tl-item ${item.done ? "is-done" : ""} ${item.now ? "is-now" : ""}" data-kind="${item.kind}" data-id="${this.escapeHTML(item.id)}" style="--subj: ${item.color}; --d: ${i}">
         <span class="tl-time">${this.escapeHTML(item.time)}</span>
         <span class="tl-dot"></span>
         <div class="tl-body" role="button" tabindex="0">
@@ -3854,6 +4342,8 @@ class StudyBuddyApp {
     container.innerHTML = pending.slice(0, 5).map(task => {
       const due = this.formatDueDateBadge(task.dueDate);
       const priority = PRIORITY_RANK[task.priority] !== undefined ? task.priority : "medium";
+      const subs = Array.isArray(task.subtasks) ? task.subtasks : [];
+      const subsDone = subs.filter(sub => sub.done).length;
       return `
         <div class="compact-task-item" data-task-id="${this.escapeHTML(task.id)}">
           <button type="button" class="check p-${priority}" data-action="toggle" aria-label="Mark as done"><i class="fa-solid fa-check"></i></button>
@@ -3862,6 +4352,7 @@ class StudyBuddyApp {
             <div class="compact-task-meta">
               <span class="chip" style="--subj: ${this.subjectColor(task.subject)}">${this.escapeHTML(task.subject || "General")}</span>
               <span class="due-text ${due.isOverdue ? "is-overdue" : due.isToday ? "is-today" : ""}">${this.escapeHTML(due.text)}</span>
+              ${subs.length ? `<span class="task-progress"><span class="task-progress-bar"><span style="width: ${Math.round((subsDone / subs.length) * 100)}%"></span></span>${subsDone}/${subs.length}</span>` : ""}
               ${priority === "high" ? '<span class="priority-flag p-high"><i class="fa-solid fa-flag"></i></span>' : ""}
             </div>
           </div>
@@ -3907,7 +4398,7 @@ class StudyBuddyApp {
       const pct = Math.min(100, (v / max) * 100);
       const label = WEEKDAYS[i].slice(0, 1);
       return `
-        <div class="wc-col ${key === todayKey ? "is-today" : ""} ${v >= goal ? "met-goal" : ""}" title="${WEEKDAYS[i]}: ${this.formatMinutes(v)}">
+        <div class="wc-col ${key === todayKey ? "is-today" : ""} ${v >= goal ? "met-goal" : ""}" style="--d: ${i}" title="${WEEKDAYS[i]}: ${this.formatMinutes(v)}">
           <span class="wc-value">${v ? this.formatMinutes(v) : ""}</span>
           <div class="wc-bar">
             <span class="wc-goal" style="bottom: ${goalPct}%"></span>
@@ -4030,7 +4521,7 @@ class StudyBuddyApp {
     const dueByDate = {};
     this.tasks.forEach(t => { if (t.dueDate) (dueByDate[t.dueDate] = dueByDate[t.dueDate] || []).push(t); });
 
-    grid.innerHTML = cells.map(cell => {
+    grid.innerHTML = cells.map((cell, idx) => {
       const key = this.toDateKey(cell.dateObj);
       const dayEvents = (eventsByDate[key] || []).slice().sort((a, b) => String(a.startTime || "").localeCompare(String(b.startTime || "")));
       const dueTasks = dueByDate[key] || [];
@@ -4055,13 +4546,24 @@ class StudyBuddyApp {
       const aria = `${cell.dateObj.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}${items.length ? `, ${items.length} item${items.length === 1 ? "" : "s"}` : ""}`;
 
       return `
-        <button type="button" class="${classes}" data-date="${key}" aria-label="${this.escapeHTML(aria)}" ${key === this.selectedDate ? 'aria-pressed="true"' : ""}>
+        <button type="button" class="${classes}" data-date="${key}" style="--d: ${Math.floor(idx / 7) + (idx % 7)}" aria-label="${this.escapeHTML(aria)}" ${key === this.selectedDate ? 'aria-pressed="true"' : ""}>
           <span class="day-number">${cell.dateObj.getDate()}</span>
           <span class="day-events">${shown}${more}</span>
           <span class="day-dots">${dots}</span>
         </button>
       `;
     }).join("");
+
+    if (this._calSlide) {
+      const dir = this._calSlide;
+      this._calSlide = null;
+      grid.classList.remove("slide-next", "slide-prev", "cells-in");
+      void grid.offsetWidth;
+      grid.classList.add("cells-in");
+      if (dir === "next" || dir === "prev") grid.classList.add(`slide-${dir}`);
+      clearTimeout(this._calSlideTimer);
+      this._calSlideTimer = setTimeout(() => grid.classList.remove("slide-next", "slide-prev", "cells-in"), 900);
+    }
   }
 
   renderAgenda() {
@@ -4145,6 +4647,7 @@ class StudyBuddyApp {
     this.renderMarksSummary();
     this.renderMarksSubjects();
     this.renderMarksTrend();
+    this.renderGradeCalculator();
 
     const container = document.getElementById("marks-list");
     const emptyState = document.getElementById("marks-empty-state");
@@ -4221,9 +4724,17 @@ class StudyBuddyApp {
     const overall = this.marksOverallPercent();
     const averages = this.marksSubjectAverages();
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-    set("marks-overall-percent", overall === null ? "—" : `${overall}%`);
+    const percentEl = document.getElementById("marks-overall-percent");
+    if (overall === null) {
+      if (percentEl) {
+        percentEl.dataset.num = "";
+        percentEl.textContent = "—";
+      }
+    } else {
+      Motion.countTo(percentEl, overall, v => `${Math.round(v * 10) / 10}%`);
+    }
     set("marks-overall-grade", this.markGrade(overall));
-    set("marks-count", this.marks.length);
+    Motion.countTo(document.getElementById("marks-count"), this.marks.length);
     set("marks-best-subject", averages.length > 0 ? averages[0].subject : "—");
   }
 
@@ -4301,8 +4812,8 @@ class StudyBuddyApp {
       <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Trend of your last ${points.length} marks, from ${first}% to ${last}%">
         <g class="trend-grid">${gridLines}${labels}</g>
         <path class="trend-area" d="${area}"></path>
-        <path class="trend-line" d="${line}"></path>
-        ${coords.map(c => `<circle class="trend-point band-${this.markGradeBand(this.markPercent(c.m))}" cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="4"><title>${this.escapeHTML(c.m.title)} — ${this.markPercent(c.m)}%</title></circle>`).join("")}
+        <path class="trend-line" d="${line}" pathLength="1"></path>
+        ${coords.map((c, i) => `<circle style="--d: ${i}" class="trend-point band-${this.markGradeBand(this.markPercent(c.m))}" cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="4"><title>${this.escapeHTML(c.m.title)} — ${this.markPercent(c.m)}%</title></circle>`).join("")}
       </svg>`;
   }
 
@@ -4316,18 +4827,18 @@ class StudyBuddyApp {
     const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-    set("completion-percentage-badge", `${percent}% done`);
+    Motion.countTo(document.getElementById("completion-percentage-badge"), percent, v => `${Math.round(v)}% done`);
     const bar = document.getElementById("progress-assignments-bar");
     if (bar) bar.style.width = `${percent}%`;
-    set("prog-completed-tasks", completed);
-    set("prog-pending-tasks", pending);
+    Motion.countTo(document.getElementById("prog-completed-tasks"), completed);
+    Motion.countTo(document.getElementById("prog-pending-tasks"), pending);
 
     const todayFocus = Number(this.focusLog[this.toDateKey(new Date())]) || 0;
     set("pomodoro-sessions-counter", `${this.pomodoroSessions} session${this.pomodoroSessions === 1 ? "" : "s"} · ${this.formatMinutes(this.focusMinutes)} total`);
     set("focus-goal-badge", `Today ${this.formatMinutes(todayFocus)} / ${this.formatMinutes(Number(this.settings.focusGoal) || 60)}`);
     const week = this.currentWeekDates();
     const weekTotal = week.reduce((sum, k) => sum + (Number(this.focusLog[k]) || 0), 0);
-    set("focus-week-total", this.formatMinutes(weekTotal));
+    Motion.countTo(document.getElementById("focus-week-total"), weekTotal, v => this.formatMinutes(v));
     this.renderWeekChart(document.getElementById("focus-week-chart"));
 
     const breakdown = document.getElementById("subject-breakdown-list");
@@ -5506,6 +6017,931 @@ class StudyBuddyApp {
   }
 
   // ===========================================================================
+  // 11b. Motion glue — entrances, nav indicator, flashes
+  // ===========================================================================
+  /** Staggers the blocks of a tab in, grows its charts and counts its numbers up. */
+  playEnter(tabId = this.currentTab) {
+    if (Motion.reduced()) return;
+    const pane = document.getElementById(`tab-${tabId}`);
+    if (!pane) return;
+    const targets = [...pane.querySelectorAll(ENTER_SELECTOR)].filter(el => el.getClientRects().length);
+    targets.forEach((el, i) => {
+      el.classList.add("anim-in");
+      el.style.setProperty("--i", Math.min(i, 12));
+    });
+    pane.classList.remove("is-entering");
+    void pane.offsetWidth;
+    pane.classList.add("is-entering");
+    clearTimeout(this._enterTimer);
+    this._enterTimer = setTimeout(() => pane.classList.remove("is-entering"), 1700);
+  }
+
+  /** Clears remembered counter values so numbers count up from zero again. */
+  resetCounters(pane) {
+    pane?.querySelectorAll("[data-num]").forEach(el => { el.dataset.num = ""; });
+  }
+
+  updateNavIndicator(instant = false) {
+    const menu = document.querySelector(".nav-menu");
+    const indicator = this._navIndicator;
+    if (!menu || !indicator) return;
+    const active = menu.querySelector(".nav-item.active");
+    if (!active || !active.offsetHeight) {
+      indicator.style.opacity = "0";
+      return;
+    }
+    if (instant) indicator.classList.add("no-anim");
+    indicator.style.opacity = "1";
+    indicator.style.height = `${active.offsetHeight}px`;
+    indicator.style.transform = `translateY(${active.offsetTop}px)`;
+    if (instant) {
+      void indicator.offsetWidth;
+      indicator.classList.remove("no-anim");
+    }
+  }
+
+  itemSelector(listName, id) {
+    const attr = {
+      tasks: "data-task-id",
+      notes: "data-note-id",
+      marks: "data-mark-id",
+      events: "data-event-id",
+      timetable: "data-slot-id",
+      decks: "data-deck-id"
+    }[listName];
+    return attr ? `[${attr}="${CSS.escape(String(id))}"]` : null;
+  }
+
+  /** The visible element showing an item in the current tab (not its inner action buttons). */
+  findItemElement(listName, id) {
+    const selector = this.itemSelector(listName, id);
+    const pane = document.getElementById(`tab-${this.currentTab}`);
+    if (!selector || !pane) return null;
+    return [...pane.querySelectorAll(selector)].find(el => !el.matches("button") && el.getClientRects().length) || null;
+  }
+
+  applyFlash() {
+    if (!this._flash) return;
+    const { listName, id } = this._flash;
+    this._flash = null;
+    const el = this.findItemElement(listName, id);
+    if (!el) return;
+    el.classList.remove("flash");
+    void el.offsetWidth;
+    el.classList.add("flash");
+    setTimeout(() => el.classList.remove("flash"), 1700);
+  }
+
+  setupSidebarCollapse() {
+    const btn = document.getElementById("collapse-sidebar-btn");
+    if (!btn) return;
+    const apply = (collapsed) => {
+      document.body.classList.toggle("sidebar-collapsed", collapsed);
+      btn.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+      btn.setAttribute("aria-label", btn.title);
+      setTimeout(() => this.updateNavIndicator(true), 380);
+    };
+    let collapsed = false;
+    try { collapsed = localStorage.getItem("studybuddy-sidebar-collapsed") === "1"; } catch (e) { /* ignore */ }
+    apply(collapsed);
+    btn.addEventListener("click", () => {
+      collapsed = !document.body.classList.contains("sidebar-collapsed");
+      apply(collapsed);
+      try { localStorage.setItem("studybuddy-sidebar-collapsed", collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
+    });
+  }
+
+  // ===========================================================================
+  // 11c. Assignment checklists (subtasks)
+  // ===========================================================================
+  setupSubtaskEditor() {
+    const list = document.getElementById("subtask-list");
+    const input = document.getElementById("subtask-new-input");
+    if (!list || !input) return;
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      this._editingSubtasks.push({ id: `st-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, text, done: false });
+      input.value = "";
+      this.renderSubtaskEditor();
+    });
+
+    list.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-sub-id]");
+      const action = e.target.closest("[data-action]")?.dataset.action;
+      if (!row || !action) return;
+      const idx = this._editingSubtasks.findIndex(s => s.id === row.dataset.subId);
+      if (idx === -1) return;
+      if (action === "toggle") this._editingSubtasks[idx].done = !this._editingSubtasks[idx].done;
+      else if (action === "remove") this._editingSubtasks.splice(idx, 1);
+      this.renderSubtaskEditor();
+    });
+
+    list.addEventListener("input", (e) => {
+      const row = e.target.closest("[data-sub-id]");
+      if (!row || !e.target.matches('input[type="text"]')) return;
+      const sub = this._editingSubtasks.find(s => s.id === row.dataset.subId);
+      if (sub) sub.text = e.target.value;
+    });
+
+    // Enter inside a step jumps to "add step" instead of submitting the form.
+    list.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.matches('input[type="text"]')) {
+        e.preventDefault();
+        input.focus();
+      }
+    });
+  }
+
+  renderSubtaskEditor() {
+    const list = document.getElementById("subtask-list");
+    if (!list) return;
+    list.innerHTML = this._editingSubtasks.map(sub => `
+      <li class="subtask-row ${sub.done ? "done" : ""}" data-sub-id="${this.escapeHTML(sub.id)}">
+        <button type="button" class="check check-sm ${sub.done ? "checked" : ""}" data-action="toggle" aria-label="${sub.done ? "Mark step as not done" : "Mark step as done"}"><i class="fa-solid fa-check"></i></button>
+        <input type="text" value="${this.escapeHTML(sub.text)}" aria-label="Checklist step">
+        <button type="button" class="icon-btn icon-btn-sm" data-action="remove" aria-label="Remove step" title="Remove step"><i class="fa-solid fa-xmark"></i></button>
+      </li>
+    `).join("");
+  }
+
+  toggleSubtask(taskId, subId) {
+    const task = this.tasks.find(t => t.id === taskId);
+    const sub = task?.subtasks?.find(s => s.id === subId);
+    if (!sub) return;
+    sub.done = !sub.done;
+    this.schedulePersist();
+    if (sub.done) {
+      this.recordActivity();
+      this.playSound("success");
+    }
+    this.renderAll();
+    const allDone = task.subtasks.length > 0 && task.subtasks.every(s => s.done);
+    if (sub.done && allDone && !task.completed) {
+      this.showToast(`Every step of “${task.title}” is done`, "success", {
+        action: { label: "Complete it", onClick: () => this.toggleTaskCompletion(task.id) }
+      });
+    }
+  }
+
+  // ===========================================================================
+  // 11d. Grade calculator — "what do I need on the next test?"
+  // ===========================================================================
+  setupGradeCalculator() {
+    ["calc-subject", "calc-target", "calc-weight"].forEach(id => {
+      const el = document.getElementById(id);
+      el?.addEventListener("input", () => this.renderGradeCalculator());
+      el?.addEventListener("change", () => this.renderGradeCalculator());
+    });
+  }
+
+  renderGradeCalculator() {
+    const select = document.getElementById("calc-subject");
+    const result = document.getElementById("calc-result");
+    if (!select || !result) return;
+
+    const subjects = [...new Set(this.marks.map(m => String(m.subject || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const current = select.value;
+    select.innerHTML = '<option value="all">All subjects</option>' +
+      subjects.map(s => `<option value="${this.escapeHTML(s)}">${this.escapeHTML(s)}</option>`).join("");
+    select.value = subjects.includes(current) ? current : "all";
+
+    const subject = select.value;
+    const target = parseFloat(document.getElementById("calc-target")?.value);
+    const weight = parseFloat(document.getElementById("calc-weight")?.value);
+    const pool = this.marks.filter(m => this.markPercent(m) !== null && (subject === "all" || m.subject === subject));
+    const show = (band, value, text) => {
+      result.className = `calc-result ${band}`;
+      result.innerHTML = `<span class="calc-result-value">${value}</span><span class="calc-result-text">${text}</span>`;
+    };
+
+    if (!pool.length) {
+      show("", "—", subject === "all" ? "Record a mark first to see what you need." : `Record a ${this.escapeHTML(subject)} mark first to see what you need.`);
+      return;
+    }
+    if (!(target > 0 && target <= 100) || !(weight > 0 && weight <= 100)) {
+      show("", "—", "Enter a target and a weight between 1 and 100.");
+      return;
+    }
+
+    // Weighted marks if the student gave weights, otherwise everything recorded
+    // so far is treated as the rest of the grade.
+    const weighted = pool.filter(m => Number(m.weight) > 0);
+    let average;
+    let done;
+    if (weighted.length) {
+      done = weighted.reduce((sum, m) => sum + Number(m.weight), 0);
+      average = weighted.reduce((sum, m) => sum + this.markPercent(m) * Number(m.weight), 0) / done;
+    } else {
+      average = pool.reduce((sum, m) => sum + this.markPercent(m), 0) / pool.length;
+      done = Math.max(1, 100 - weight);
+    }
+    const needed = Math.round(((target * (done + weight) - average * done) / weight) * 10) / 10;
+    const avg = Math.round(average * 10) / 10;
+    const scope = subject === "all" ? "overall" : `in ${this.escapeHTML(subject)}`;
+
+    if (needed <= 0) {
+      show("band-ok", "✓", `You're on track for ${target}% ${scope} whatever you score (currently ${avg}%).`);
+    } else if (needed > 100) {
+      const best = Math.round(((average * done + 100 * weight) / (done + weight)) * 10) / 10;
+      show("band-no", `${needed}%`, `Out of reach with one test worth ${weight}% — a perfect score gets you to ${best}% ${scope}.`);
+    } else {
+      show(needed > 85 ? "band-hard" : "band-ok", `${needed}%`,
+        `needed on a test worth ${weight}% to reach ${target}% ${scope} (currently ${avg}%).`);
+    }
+  }
+
+  // ===========================================================================
+  // 11e. Focus mode — full-screen timer with ambient sound
+  // ===========================================================================
+  setupFocusMode() {
+    const overlay = document.getElementById("focus-overlay");
+    if (!overlay) return;
+    document.getElementById("focus-mode-btn")?.addEventListener("click", () => this.openFocusMode());
+    document.getElementById("fo-exit-btn")?.addEventListener("click", () => this.closeFocusMode());
+    document.getElementById("fo-toggle-btn")?.addEventListener("click", () => this.toggleTimer());
+    document.getElementById("fo-reset-btn")?.addEventListener("click", () => this.resetTimer());
+    document.getElementById("fo-skip-btn")?.addEventListener("click", () => this.skipTimer());
+    document.getElementById("fo-sound")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-sound]");
+      if (btn) this.setAmbient(btn.dataset.sound);
+    });
+    const volume = document.getElementById("fo-volume");
+    volume?.addEventListener("input", () => {
+      const v = Number(volume.value) || 0;
+      AmbientSound.setVolume(v / 100);
+      this.settings.ambientVolume = v;
+      clearTimeout(this._volumeTimer);
+      this._volumeTimer = setTimeout(() => this.schedulePersist(), 600);
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (!this.isFocusModeOpen() || (window.studyBuddy && window.studyBuddy !== this)) return;
+      if (e.key === " " && !this.isTypingTarget(e.target)) {
+        e.preventDefault();
+        this.toggleTimer();
+      }
+    });
+    // Leaving browser full screen (Esc) also leaves focus mode.
+    document.addEventListener("fullscreenchange", () => {
+      if (!document.fullscreenElement && this._focusFullscreen && this.isFocusModeOpen()) {
+        this._focusFullscreen = false;
+        this.closeFocusMode();
+      }
+    });
+  }
+
+  isFocusModeOpen() {
+    return Boolean(document.getElementById("focus-overlay")?.classList.contains("open"));
+  }
+
+  openFocusMode() {
+    const overlay = document.getElementById("focus-overlay");
+    if (!overlay || this.isFocusModeOpen()) return;
+    this.closePalette();
+    this.closeQuickAdd();
+    this.closeDrawer?.();
+    overlay.classList.add("open");
+    document.body.classList.add("modal-open");
+    this._focusFullscreen = false;
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen()
+          .then(() => { this._focusFullscreen = true; })
+          .catch(() => { /* full screen is optional */ });
+      }
+    } catch (e) { /* ignore */ }
+
+    const volume = document.getElementById("fo-volume");
+    const v = Number(this.settings.ambientVolume ?? 50);
+    if (volume) volume.value = String(v);
+    AmbientSound.setVolume(v / 100);
+    const sound = this.settings.ambient || "off";
+    if (sound !== "off") this.setAmbient(sound, false);
+    else this.syncSoundButtons("off");
+
+    this.renderFocusOverlay();
+    document.getElementById("fo-toggle-btn")?.focus({ preventScroll: true });
+  }
+
+  closeFocusMode() {
+    const overlay = document.getElementById("focus-overlay");
+    if (!overlay || !this.isFocusModeOpen()) return;
+    overlay.classList.remove("open");
+    if (!document.querySelector(".modal-backdrop.active")) document.body.classList.remove("modal-open");
+    AmbientSound.stop();
+    if (document.fullscreenElement && document.exitFullscreen) {
+      this._focusFullscreen = false;
+      document.exitFullscreen().catch(() => { /* ignore */ });
+    }
+    document.getElementById("focus-mode-btn")?.focus({ preventScroll: true });
+  }
+
+  setAmbient(kind, persist = true) {
+    const volume = Number(document.getElementById("fo-volume")?.value ?? this.settings.ambientVolume ?? 50);
+    AmbientSound.setVolume(volume / 100);
+    AmbientSound.play(kind);
+    this.syncSoundButtons(kind);
+    if (persist) {
+      this.settings.ambient = kind;
+      this.schedulePersist();
+    }
+  }
+
+  syncSoundButtons(kind) {
+    document.querySelectorAll("#fo-sound [data-sound]").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.sound === kind);
+      btn.setAttribute("aria-pressed", String(btn.dataset.sound === kind));
+    });
+  }
+
+  renderFocusOverlay(timeOnly = false) {
+    if (!this.isFocusModeOpen()) return;
+    const overlay = document.getElementById("focus-overlay");
+    const total = this.modeSeconds(this.timerMode);
+    const fraction = Math.min(1, Math.max(0, (total - this.timeLeft) / total));
+    const timeEl = document.getElementById("fo-time");
+    if (timeEl) timeEl.textContent = this.formatTimer(this.timeLeft);
+    const ring = document.getElementById("fo-progress");
+    if (ring) {
+      const c = 2 * Math.PI * 92;
+      ring.style.strokeDasharray = String(c);
+      ring.style.strokeDashoffset = String(c * (1 - fraction));
+    }
+    if (timeOnly) return;
+
+    overlay.dataset.mode = this.timerMode;
+    overlay.classList.toggle("is-running", this.isTimerRunning);
+    const label = this.timerMode === "pomodoro" ? "Focus" : this.timerMode === "shortBreak" ? "Short break" : "Long break";
+    const modeEl = document.getElementById("fo-mode");
+    if (modeEl) modeEl.textContent = label;
+    const task = this.timerTaskId ? this.tasks.find(t => t.id === this.timerTaskId) : null;
+    const taskEl = document.getElementById("fo-task");
+    if (taskEl) {
+      taskEl.textContent = this.timerMode !== "pomodoro" ? "Breathe. Stretch. Look out of a window."
+        : task ? task.title : "Just focusing";
+    }
+    const toggle = document.getElementById("fo-toggle-btn");
+    if (toggle) {
+      toggle.innerHTML = this.isTimerRunning ? '<i class="fa-solid fa-pause"></i>' : '<i class="fa-solid fa-play"></i>';
+      toggle.setAttribute("aria-label", this.isTimerRunning ? "Pause" : "Start");
+    }
+    const dots = document.getElementById("fo-dots");
+    if (dots) {
+      let filled = this.cycleCount % 4;
+      if (filled === 0 && this.cycleCount > 0 && this.timerMode === "longBreak") filled = 4;
+      dots.innerHTML = [0, 1, 2, 3].map(i => `<span class="${i < filled ? "filled" : ""}"></span>`).join("");
+    }
+  }
+
+  // ===========================================================================
+  // 11f. Flashcards — Leitner-style spaced repetition
+  // ===========================================================================
+  /** Days until the next review for each box (0 = new / forgotten). */
+  static get FC_INTERVALS() { return [0, 1, 2, 4, 8, 16]; }
+
+  fcAddDays(days) {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return this.toDateKey(d);
+  }
+
+  normalizeDeck(deck) {
+    if (!deck || typeof deck !== "object") return null;
+    deck.id = String(deck.id || `deck-${Date.now()}`);
+    deck.name = String(deck.name || "Untitled deck");
+    deck.subject = String(deck.subject || "");
+    deck.cards = Array.isArray(deck.cards) ? deck.cards.filter(c => c && typeof c === "object") : [];
+    deck.cards.forEach(c => {
+      c.id = String(c.id || `card-${Math.random().toString(36).slice(2)}`);
+      c.front = String(c.front || "");
+      c.back = String(c.back || "");
+      c.box = Math.max(0, Math.min(5, Number(c.box) || 0));
+      c.due = typeof c.due === "string" && c.due ? c.due : this.toDateKey(new Date());
+      c.reviews = Number(c.reviews) || 0;
+    });
+    return deck;
+  }
+
+  deckDueCards(deck) {
+    const today = this.toDateKey(new Date());
+    return deck.cards.filter(c => !c.due || c.due <= today);
+  }
+
+  totalDueCards() {
+    return this.decks.reduce((sum, deck) => sum + this.deckDueCards(deck).length, 0);
+  }
+
+  fcIntervalLabel(days) {
+    if (days <= 0) return "today";
+    if (days === 1) return "tomorrow";
+    if (days < 14) return `in ${days} days`;
+    return `in ${Math.round(days / 7)} weeks`;
+  }
+
+  isStudying() {
+    return this.currentTab === "flashcards" && this.fcView === "study" && Boolean(this.fcSession) && !this.fcSession.finished;
+  }
+
+  setFcView(view) {
+    this.fcView = view;
+    if (view !== "study") this.fcSession = view === "deck" || view === "decks" ? null : this.fcSession;
+    this.renderFlashcards();
+    if (this.currentTab === "flashcards") this.playEnter("flashcards");
+  }
+
+  openDeck(id) {
+    this.fcDeckId = id;
+    this.setFcView("deck");
+  }
+
+  setupFlashcards() {
+    const bind = (id, fn) => document.getElementById(id)?.addEventListener("click", fn);
+    bind("add-deck-btn", () => this.openDeckModal());
+    bind("empty-state-add-deck-btn", () => this.openDeckModal());
+    bind("fc-back-btn", () => this.setFcView("decks"));
+    bind("fc-edit-deck-btn", () => this.openDeckModal(this.decks.find(d => d.id === this.fcDeckId)));
+    bind("fc-delete-deck-btn", () => this.deleteDeck(this.fcDeckId));
+    bind("fc-study-btn", () => this.startStudy(this.fcDeckId));
+    bind("fc-study-exit-btn", () => this.endStudy());
+    bind("fc-done-back-btn", () => this.setFcView("decks"));
+    bind("card-delete-btn", () => {
+      const id = document.getElementById("card-id")?.value;
+      this.closeModal(document.getElementById("card-modal"));
+      if (id) this.deleteCard(this.fcDeckId, id);
+    });
+
+    document.getElementById("deck-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      this.saveDeckFromForm();
+    });
+    document.getElementById("card-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      this.saveCardFromForm();
+    });
+    document.getElementById("deck-search-input")?.addEventListener("input", (e) => {
+      this.deckSearch = e.target.value.toLowerCase().trim();
+      this.renderFlashcards();
+    });
+
+    document.getElementById("deck-grid")?.addEventListener("click", (e) => {
+      const card = e.target.closest("[data-deck-id]");
+      if (!card) return;
+      const id = card.dataset.deckId;
+      const action = e.target.closest("[data-action]")?.dataset.action;
+      if (action === "delete") this.deleteDeck(id);
+      else if (action === "study") this.startStudy(id);
+      else this.openDeck(id);
+    });
+
+    const addForm = document.getElementById("fc-add-form");
+    addForm?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      this.addCardFromForm();
+    });
+    ["fc-front-input", "fc-back-input"].forEach(id => {
+      document.getElementById(id)?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          this.addCardFromForm();
+        }
+      });
+    });
+
+    document.getElementById("fc-card-list")?.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-card-id]");
+      if (!row) return;
+      const deck = this.decks.find(d => d.id === this.fcDeckId);
+      const card = deck?.cards.find(c => c.id === row.dataset.cardId);
+      if (!card) return;
+      if (e.target.closest("[data-action='delete']")) this.deleteCard(deck.id, card.id);
+      else this.openCardModal(card);
+    });
+
+    const flip = document.getElementById("fc-flip-card");
+    flip?.addEventListener("click", () => this.flipStudyCard());
+    document.getElementById("fc-grade-buttons")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-grade]");
+      if (btn) this.gradeStudyCard(btn.dataset.grade);
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (window.studyBuddy && window.studyBuddy !== this) return;
+      if (!this.isStudying() || this.isTypingTarget(e.target)) return;
+      if (document.querySelector(".modal-backdrop.active") || this.isPaletteOpen()) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        this.flipStudyCard();
+      } else if (["1", "2", "3"].includes(e.key) && this.fcSession?.flipped) {
+        e.preventDefault();
+        this.gradeStudyCard({ 1: "again", 2: "good", 3: "easy" }[e.key]);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        this.endStudy();
+      }
+    });
+  }
+
+  openDeckModal(deck = null) {
+    const modal = document.getElementById("deck-modal");
+    const form = document.getElementById("deck-form");
+    if (!modal || !form) return;
+    form.reset();
+    document.getElementById("deck-id").value = deck ? deck.id : "";
+    document.getElementById("deck-name-input").value = deck ? deck.name : "";
+    document.getElementById("deck-subject-input").value = deck ? deck.subject : "";
+    document.getElementById("deck-modal-title").textContent = deck ? "Rename deck" : "New deck";
+    document.getElementById("save-deck-btn").textContent = deck ? "Save" : "Create deck";
+    this.openModal(modal);
+  }
+
+  saveDeckFromForm() {
+    const id = document.getElementById("deck-id").value;
+    const name = document.getElementById("deck-name-input").value.trim();
+    const subject = document.getElementById("deck-subject-input").value.trim();
+    if (!name) {
+      this.showToast("Give the deck a name", "alert");
+      return;
+    }
+    if (id) {
+      const deck = this.decks.find(d => d.id === id);
+      if (deck) Object.assign(deck, { name, subject });
+      this.closeModal(document.getElementById("deck-modal"));
+      this.schedulePersist();
+      this.renderAll();
+      this.showToast("Deck updated");
+      return;
+    }
+    const deck = { id: `deck-${Date.now()}`, name, subject, cards: [], createdAt: new Date().toISOString() };
+    this.decks.unshift(deck);
+    this.closeModal(document.getElementById("deck-modal"));
+    this.schedulePersist();
+    this.recordActivity();
+    this.fcDeckId = deck.id;
+    this.fcView = "deck";
+    if (this.currentTab !== "flashcards") this.switchTab("flashcards");
+    else this.setFcView("deck");
+    this.showToast(`Deck “${name}” created — add your first card`);
+    setTimeout(() => document.getElementById("fc-front-input")?.focus(), 60);
+  }
+
+  deleteDeck(id) {
+    const deck = this.decks.find(d => d.id === id);
+    if (!deck) return;
+    if (this.fcView !== "decks") {
+      this.fcView = "decks";
+      this.fcSession = null;
+      this.renderFlashcards();
+    }
+    this.removeWithUndo("decks", id, `Deck “${deck.name}”`);
+  }
+
+  addCardFromForm() {
+    const deck = this.decks.find(d => d.id === this.fcDeckId);
+    const frontEl = document.getElementById("fc-front-input");
+    const backEl = document.getElementById("fc-back-input");
+    if (!deck || !frontEl || !backEl) return;
+    const front = frontEl.value.trim();
+    const back = backEl.value.trim();
+    if (!front || !back) {
+      this.showToast("Fill in both sides of the card", "alert");
+      (front ? backEl : frontEl).focus();
+      return;
+    }
+    const card = { id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, front, back, box: 0, due: this.toDateKey(new Date()), reviews: 0, createdAt: new Date().toISOString() };
+    deck.cards.push(card);
+    frontEl.value = "";
+    backEl.value = "";
+    frontEl.focus();
+    this.schedulePersist();
+    this.recordActivity();
+    this.renderAll();
+    const row = document.querySelector(`#fc-card-list [data-card-id="${CSS.escape(card.id)}"]`);
+    row?.classList.add("flash");
+  }
+
+  openCardModal(card) {
+    const modal = document.getElementById("card-modal");
+    if (!modal || !card) return;
+    document.getElementById("card-form").reset();
+    document.getElementById("card-id").value = card.id;
+    document.getElementById("card-front-input").value = card.front;
+    document.getElementById("card-back-input").value = card.back;
+    this.openModal(modal);
+  }
+
+  saveCardFromForm() {
+    const deck = this.decks.find(d => d.id === this.fcDeckId);
+    const card = deck?.cards.find(c => c.id === document.getElementById("card-id").value);
+    if (!card) return;
+    const front = document.getElementById("card-front-input").value.trim();
+    const back = document.getElementById("card-back-input").value.trim();
+    if (!front || !back) {
+      this.showToast("Fill in both sides of the card", "alert");
+      return;
+    }
+    Object.assign(card, { front, back });
+    if (document.getElementById("card-reset-input")?.checked) {
+      card.box = 0;
+      card.due = this.toDateKey(new Date());
+    }
+    this.closeModal(document.getElementById("card-modal"));
+    this.schedulePersist();
+    this.renderAll();
+    this.showToast("Card updated");
+  }
+
+  deleteCard(deckId, cardId) {
+    const deck = this.decks.find(d => d.id === deckId);
+    if (!deck) return;
+    const index = deck.cards.findIndex(c => c.id === cardId);
+    if (index === -1) return;
+    const row = document.querySelector(`#fc-card-list [data-card-id="${CSS.escape(cardId)}"]`);
+    const [removed] = deck.cards.splice(index, 1);
+    this.schedulePersist();
+    Motion.collapseOut(row, () => this.renderAll());
+    this.showToast("Card deleted", "info", {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          if (deck.cards.some(c => c.id === removed.id)) return;
+          deck.cards.splice(Math.min(index, deck.cards.length), 0, removed);
+          this.schedulePersist();
+          this.renderAll();
+        }
+      }
+    });
+  }
+
+  startStudy(deckId) {
+    const deck = this.decks.find(d => d.id === deckId);
+    if (!deck) return;
+    if (!deck.cards.length) {
+      this.fcDeckId = deckId;
+      this.setFcView("deck");
+      this.showToast("Add a few cards to this deck first", "info");
+      return;
+    }
+    let queue = this.deckDueCards(deck);
+    const practice = queue.length === 0;
+    if (practice) queue = deck.cards.slice();
+    queue = queue.map(c => c.id);
+    for (let i = queue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [queue[i], queue[j]] = [queue[j], queue[i]];
+    }
+    this.fcDeckId = deckId;
+    this.fcSession = { deckId, queue, index: 0, total: queue.length, done: 0, again: 0, good: 0, easy: 0, flipped: false, practice, finished: false };
+    if (this.currentTab !== "flashcards") {
+      this.fcView = "study";
+      this.switchTab("flashcards");
+    } else {
+      this.setFcView("study");
+    }
+    this.renderStudyCard();
+  }
+
+  reviewDueCards() {
+    const deck = this.decks
+      .map(d => ({ d, due: this.deckDueCards(d).length }))
+      .filter(x => x.due > 0)
+      .sort((a, b) => b.due - a.due)[0];
+    if (deck) this.startStudy(deck.d.id);
+    else {
+      this.switchTab("flashcards");
+      this.showToast(this.decks.length ? "Nothing due — you're all caught up" : "Create a deck to start reviewing", "info");
+    }
+  }
+
+  renderStudyCard() {
+    const s = this.fcSession;
+    const deck = s && this.decks.find(d => d.id === s.deckId);
+    if (!s || !deck) return;
+    const card = deck.cards.find(c => c.id === s.queue[s.index]);
+    if (!card) {
+      this.finishStudy();
+      return;
+    }
+    s.flipped = false;
+    document.getElementById("fc-study-stage")?.classList.remove("hidden");
+    document.getElementById("fc-study-done")?.classList.add("hidden");
+    const flip = document.getElementById("fc-flip-card");
+    flip?.classList.remove("is-flipped");
+    document.getElementById("fc-front-text").textContent = card.front;
+    document.getElementById("fc-back-text").textContent = card.back;
+    document.getElementById("fc-front-label").textContent = deck.name;
+    document.getElementById("fc-grade-buttons")?.classList.add("is-hidden");
+    document.getElementById("fc-study-bar").style.width = `${(s.done / s.total) * 100}%`;
+    document.getElementById("fc-study-count").textContent = `${Math.min(s.done + 1, s.total)} / ${s.total}`;
+
+    const intervals = StudyBuddyApp.FC_INTERVALS;
+    const goodDays = intervals[Math.min(5, card.box + 1)];
+    const easyDays = intervals[Math.min(5, card.box + 2)];
+    document.getElementById("fc-int-again").textContent = "1 · again today";
+    document.getElementById("fc-int-good").textContent = `2 · ${this.fcIntervalLabel(goodDays)}`;
+    document.getElementById("fc-int-easy").textContent = `3 · ${this.fcIntervalLabel(easyDays)}`;
+
+    Motion.animate(flip, [
+      { opacity: 0, transform: "translateX(48px) rotate(3deg) scale(0.96)" },
+      { opacity: 1, transform: "none" }
+    ], { duration: 420, easing: "cubic-bezier(0.34, 1.4, 0.64, 1)" });
+    flip?.focus({ preventScroll: true });
+  }
+
+  flipStudyCard() {
+    const s = this.fcSession;
+    if (!s || s.finished) return;
+    s.flipped = !s.flipped;
+    document.getElementById("fc-flip-card")?.classList.toggle("is-flipped", s.flipped);
+    if (s.flipped) document.getElementById("fc-grade-buttons")?.classList.remove("is-hidden");
+  }
+
+  gradeStudyCard(grade) {
+    const s = this.fcSession;
+    const deck = s && this.decks.find(d => d.id === s.deckId);
+    const card = deck?.cards.find(c => c.id === s.queue[s.index]);
+    if (!s || !card || !s.flipped || s.busy) return;
+    const intervals = StudyBuddyApp.FC_INTERVALS;
+    if (grade === "again") {
+      card.box = 0;
+      card.due = this.toDateKey(new Date());
+      card.lapses = (Number(card.lapses) || 0) + 1;
+      s.again++;
+      s.queue.push(card.id); // see it again later in this session
+    } else {
+      card.box = Math.min(5, card.box + (grade === "easy" ? 2 : 1));
+      card.due = this.fcAddDays(intervals[card.box]);
+      s[grade]++;
+      s.done++;
+    }
+    card.reviews = (Number(card.reviews) || 0) + 1;
+    card.lastReviewed = this.toDateKey(new Date());
+    this.recordActivity();
+    this.schedulePersist();
+
+    s.busy = true;
+    const flip = document.getElementById("fc-flip-card");
+    const dir = grade === "again" ? -1 : 1;
+    const anim = Motion.animate(flip, [
+      { opacity: 1, transform: flip?.classList.contains("is-flipped") ? "none" : "none" },
+      { opacity: 0, transform: `translateX(${dir * -60}px) rotate(${dir * -4}deg) scale(0.95)` }
+    ], { duration: 260, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" });
+    const next = () => {
+      anim?.cancel();
+      s.busy = false;
+      s.index++;
+      if (s.index >= s.queue.length) this.finishStudy();
+      else this.renderStudyCard();
+    };
+    if (anim) anim.finished.then(next).catch(next);
+    else next();
+  }
+
+  finishStudy() {
+    const s = this.fcSession;
+    if (!s) return;
+    s.finished = true;
+    const deck = this.decks.find(d => d.id === s.deckId);
+    document.getElementById("fc-study-stage")?.classList.add("hidden");
+    const done = document.getElementById("fc-study-done");
+    done?.classList.remove("hidden");
+    document.getElementById("fc-study-bar").style.width = "100%";
+    document.getElementById("fc-study-count").textContent = `${s.total} / ${s.total}`;
+    document.getElementById("fc-done-title").textContent = s.practice ? "Practice round done" : "All caught up!";
+    const nextDue = deck ? deck.cards.map(c => c.due).filter(Boolean).sort()[0] : null;
+    const nextDays = nextDue ? this.daysUntil(nextDue) : null;
+    document.getElementById("fc-done-text").textContent = nextDays !== null && nextDays > 0
+      ? `Your next review for this deck is ${this.fcIntervalLabel(nextDays)}.`
+      : "Come back later to keep these fresh.";
+    document.getElementById("fc-done-stats").innerHTML = `
+      <div><strong>${s.total}</strong><span>cards</span></div>
+      <div><strong>${s.good + s.easy}</strong><span>remembered</span></div>
+      <div><strong>${s.again}</strong><span>to repeat</span></div>`;
+    Motion.animate(done, [{ opacity: 0, transform: "scale(0.94)" }, { opacity: 1, transform: "none" }], { duration: 500, easing: "cubic-bezier(0.34, 1.4, 0.64, 1)" });
+    this.playSound("success");
+    this.celebrate(done);
+    this.renderBadges();
+  }
+
+  endStudy() {
+    if (!this.fcSession) return;
+    this.fcSession = null;
+    this.setFcView(this.fcDeckId && this.decks.some(d => d.id === this.fcDeckId) ? "deck" : "decks");
+  }
+
+  renderFlashcards() {
+    const views = {
+      decks: document.getElementById("fc-decks-view"),
+      deck: document.getElementById("fc-deck-view"),
+      study: document.getElementById("fc-study-view")
+    };
+    if (!views.decks) return;
+    if (this.fcView === "deck" && !this.decks.some(d => d.id === this.fcDeckId)) this.fcView = "decks";
+    if (this.fcView === "study" && !this.fcSession) this.fcView = this.decks.some(d => d.id === this.fcDeckId) ? "deck" : "decks";
+    Object.entries(views).forEach(([name, el]) => el?.classList.toggle("hidden", name !== this.fcView));
+
+    if (this.fcView === "decks") this.renderDeckGrid();
+    else if (this.fcView === "deck") this.renderDeckDetail();
+  }
+
+  renderDeckGrid() {
+    const grid = document.getElementById("deck-grid");
+    const empty = document.getElementById("decks-empty-state");
+    const summary = document.getElementById("fc-summary");
+    if (!grid) return;
+    const totalCards = this.decks.reduce((sum, d) => sum + d.cards.length, 0);
+    const due = this.totalDueCards();
+    if (summary) summary.textContent = this.decks.length ? `${totalCards} cards · ${due} due today` : "";
+
+    const q = this.deckSearch;
+    const decks = this.decks.filter(d => !q ||
+      d.name.toLowerCase().includes(q) || d.subject.toLowerCase().includes(q) ||
+      d.cards.some(c => c.front.toLowerCase().includes(q) || c.back.toLowerCase().includes(q)));
+
+    if (!decks.length) {
+      grid.innerHTML = "";
+      document.getElementById("decks-empty-title").textContent = this.decks.length ? "No matching decks" : "Make your first deck";
+      document.getElementById("decks-empty-text").textContent = this.decks.length
+        ? "Try another word — search looks inside cards too."
+        : "Turn definitions, formulas and dates into flashcards. StudyBuddy schedules reviews so the cards you struggle with come back sooner.";
+      empty?.classList.remove("hidden");
+      return;
+    }
+    empty?.classList.add("hidden");
+
+    grid.innerHTML = decks.map(deck => {
+      const dueCount = this.deckDueCards(deck).length;
+      const mastered = deck.cards.filter(c => c.box >= 4).length;
+      const avgBox = deck.cards.length ? deck.cards.reduce((s, c) => s + c.box, 0) / deck.cards.length : 0;
+      const segments = Math.round(avgBox);
+      return `
+        <article class="deck-card" data-deck-id="${this.escapeHTML(deck.id)}" style="--subj: ${this.subjectColor(deck.subject || deck.name)}" tabindex="0" aria-label="${this.escapeHTML(deck.name)}">
+          <div class="deck-top">
+            <span class="deck-icon"><i class="fa-solid fa-layer-group"></i></span>
+            <div style="flex: 1; min-width: 0;">
+              <div class="deck-name">${this.escapeHTML(deck.name)}</div>
+              ${deck.subject ? `<span class="chip" style="--subj: ${this.subjectColor(deck.subject)}; margin-top: .35rem">${this.escapeHTML(deck.subject)}</span>` : ""}
+            </div>
+            <button type="button" class="icon-btn icon-btn-sm icon-btn-danger" data-action="delete" aria-label="Delete deck" title="Delete deck"><i class="fa-regular fa-trash-can"></i></button>
+          </div>
+          <div class="deck-stats">
+            <span><strong>${deck.cards.length}</strong>cards</span>
+            <span class="${dueCount ? "is-due" : ""}"><strong>${dueCount}</strong>due today</span>
+            <span><strong>${mastered}</strong>mastered</span>
+          </div>
+          <div class="deck-mastery" title="Average memory strength: ${avgBox.toFixed(1)} / 5">
+            ${[1, 2, 3, 4, 5].map(i => `<span class="${i <= segments ? "on" : ""}"></span>`).join("")}
+          </div>
+          <div class="deck-actions">
+            <button type="button" class="btn btn-sm btn-primary" data-action="study"><i class="fa-solid fa-play"></i> ${dueCount ? `Review ${dueCount}` : deck.cards.length ? "Practice" : "Add cards"}</button>
+            <button type="button" class="btn btn-sm btn-outline" data-action="manage"><i class="fa-regular fa-clone"></i> Cards</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  renderDeckDetail() {
+    const deck = this.decks.find(d => d.id === this.fcDeckId);
+    if (!deck) return;
+    document.getElementById("fc-deck-title").textContent = deck.name;
+    const due = this.deckDueCards(deck).length;
+    const label = document.getElementById("fc-study-label");
+    if (label) label.textContent = due ? `Review ${due} due` : "Practice all";
+    const studyBtn = document.getElementById("fc-study-btn");
+    if (studyBtn) studyBtn.disabled = deck.cards.length === 0;
+
+    const list = document.getElementById("fc-card-list");
+    const empty = document.getElementById("fc-cards-empty");
+    if (!list) return;
+    if (!deck.cards.length) {
+      list.innerHTML = "";
+      empty?.classList.remove("hidden");
+      return;
+    }
+    empty?.classList.add("hidden");
+    const today = this.toDateKey(new Date());
+    list.innerHTML = deck.cards.map(card => {
+      const isDue = !card.due || card.due <= today;
+      const days = this.daysUntil(card.due);
+      return `
+        <div class="fc-row" data-card-id="${this.escapeHTML(card.id)}" role="button" tabindex="0">
+          <div class="fc-row-front">${this.escapeHTML(card.front)}</div>
+          <div class="fc-row-back">${this.escapeHTML(card.back)}</div>
+          <span class="box-badge b${card.box}" title="Memory strength ${card.box}/5">${card.reviews ? (isDue ? "Due now" : `Next ${this.fcIntervalLabel(days)}`) : "New"}</span>
+          <div class="fc-row-actions">
+            <button type="button" class="icon-btn icon-btn-sm icon-btn-danger" data-action="delete" aria-label="Delete card" title="Delete card"><i class="fa-regular fa-trash-can"></i></button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  // ===========================================================================
   // 12. Helper Utilities
   // ===========================================================================
   formatDueDateBadge(dueDateStr) {
@@ -5598,9 +7034,19 @@ class StudyBuddyApp {
     else SoundFX.playSuccess();
   }
 
-  celebrate() {
+  /** Confetti burst — from `origin` (an element) when given, else the screen centre. */
+  celebrate(origin = null) {
     if (this.settings && this.settings.confetti === false) return;
-    ConfettiFX.launch();
+    let x;
+    let y;
+    if (origin && typeof origin.getBoundingClientRect === "function") {
+      const r = origin.getBoundingClientRect();
+      if (r.width) {
+        x = r.left + r.width / 2;
+        y = r.top + r.height / 2;
+      }
+    }
+    ConfettiFX.launch(x, y);
   }
 
   escapeHTML(str) {
@@ -5639,9 +7085,9 @@ const ThemeBootstrap = {
     this.set(theme, false);
   },
 
-  toggle() {
+  toggle(origin) {
     const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-    this.set(current === "dark" ? "light" : "dark", true);
+    Motion.themeSwitch(() => this.set(current === "dark" ? "light" : "dark", true), origin);
   },
 
   set(theme, persist) {
@@ -5651,8 +7097,12 @@ const ThemeBootstrap = {
     // Keep every toggle button's icon in sync (sun while dark, moon while light).
     const icon = value === "dark" ? "fa-sun" : "fa-moon";
     document.querySelectorAll(".theme-toggle-btn i").forEach(el => {
-      el.classList.remove("fa-sun", "fa-moon");
+      el.classList.remove("fa-sun", "fa-moon", "spin");
       el.classList.add(icon);
+      if (persist) {
+        void el.offsetWidth;
+        el.classList.add("spin");
+      }
     });
 
     if (persist) {
@@ -5872,6 +7322,8 @@ async function bootWithSession(session) {
     await window.studyBuddy.startSession(session);
     clearTimeout(watchdog);
     document.getElementById("app-layout")?.classList.remove("hidden");
+    window.studyBuddy.updateNavIndicator(true);
+    window.studyBuddy.playEnter();
   } catch (e) {
     clearTimeout(watchdog);
     console.error("[StudyBuddy] Failed to start StudyBuddy:", e);
@@ -5889,7 +7341,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Apply the saved/OS theme immediately so the login screen matches too,
   // and wire the login screen's own toggle (the app's setupTheme() wires the rest).
   ThemeBootstrap.applyInitialTheme();
-  document.getElementById("theme-toggle-auth")?.addEventListener("click", () => ThemeBootstrap.toggle());
+  document.getElementById("theme-toggle-auth")?.addEventListener("click", (e) => ThemeBootstrap.toggle(e.currentTarget));
 
   AuthGate.init();
 

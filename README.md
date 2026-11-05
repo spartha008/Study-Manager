@@ -17,6 +17,7 @@ A modern, responsive, and beginner-friendly web application built for students t
    - Quick-add row (type a title, press Enter), priority pills, date shortcuts (Today / Tomorrow / Next week).
    - To do / Done / All filter with counts, priority + subject filters, and sorting by due date, priority or recently added.
    - ▶ "Focus on this" starts a Pomodoro linked to the assignment and tracks minutes focused on it.
+   - **Checklists**: break an assignment into steps; cards show a progress bar and expand to tick steps off in place.
    - Completing, deleting or clearing shows an **Undo** toast instead of a blocking confirmation.
 
 3. **📅 Calendar & Events with Reminders**
@@ -34,25 +35,34 @@ A modern, responsive, and beginner-friendly web application built for students t
    - Masonry grid with colour swatches, **pinning**, and light formatting: `- bullets`, `**bold**`, `` `code` ``, `# headings`.
    - Search and subject filter; click any card to edit.
 
-6. **🎓 Marks & Grades**
+6. **🃏 Flashcards (spaced repetition)**
+   - Decks of question/answer cards, with search across every card.
+   - Study sessions with 3D flip cards: rate each one **Again / Good / Easy** (keys `1` `2` `3`, `Space` to flip).
+   - Leitner-style scheduling: cards you know come back in 1 → 2 → 4 → 8 → 16 days; cards you miss repeat in the same session.
+   - Due counts on the sidebar badge, the Today summary and a "Review cards" button.
+
+7. **🎓 Marks & Grades**
    - Percentages, letter grades (A+ → F), weighted overall average, strongest subject.
    - Per-subject averages and a **trend chart** of your last 10 results.
+   - **"What do I need?"** calculator: pick a subject, a target and the next test's weight to see the score you need.
 
-7. **⏱️ Focus & Progress**
+8. **⏱️ Focus & Progress**
    - Pomodoro timer that stays accurate in background tabs, shows the countdown in the browser tab title, and earns a long break every 4th session.
    - Custom focus/break lengths, daily focus goal and optional auto-start (Settings).
+   - **Full-screen focus mode** (`Shift + F`): a distraction-free timer over a slowly drifting aurora, with generated ambient sound (rain, deep brown noise or white noise) and a volume slider.
    - Weekly focus chart, study streak, assignment completion by subject. A mini timer stays in the sidebar.
 
-8. **⌨️ Fast navigation**
+9. **⌨️ Fast navigation**
    - **Command palette** (`Ctrl/⌘ + K` or `/`): search assignments, events, notes, marks and timetable slots, or run commands.
-   - "+ New" menu everywhere, and single-key shortcuts: `A` assignment, `E` event, `N` note, `M` mark, `S` slot, `F` focus, `T` theme, `1–8` sections, `?` help.
+   - "+ New" menu everywhere, and single-key shortcuts: `A` assignment, `E` event, `N` note, `M` mark, `S` slot, `D` deck, `R` review cards, `F` focus, `Shift+F` focus mode, `T` theme, `1–9` sections, `?` help.
+   - The sidebar collapses to an icon rail (« button) and remembers your choice.
 
-9. **⚙️ Settings & your data**
+10. **⚙️ Settings & your data**
    - Timer lengths, daily goal, sounds and confetti on/off.
    - **Export** the whole workspace to JSON and **import** it back (journal pages stay encrypted inside the file).
    - "Clear all data" lives in a Danger zone inside Settings, behind a confirmation.
 
-10. **🔐 Private Journal (Password-Protected)**
+11. **🔐 Private Journal (Password-Protected)**
    - A personal, everyday journal living right beside your study tools — one page per day.
    - Opening the Journal tab always asks for a **journal password** you create once, so it feels
    like stepping into a room only you have the key to. It re-locks itself the moment you leave
@@ -72,15 +82,18 @@ A modern, responsive, and beginner-friendly web application built for students t
    (works on any device you sign into), plus a one-click **Backup file** you can drop into Google
    Drive, and a **Restore** action that brings it back anywhere — password required.
 
-11. **☁️ Cloud Persistence (Supabase)**
+12. **☁️ Cloud Persistence (Supabase)**
    - Sign in with Google — every account gets its own private workspace.
    - New accounts start with a completely empty workspace — no sample content.
-   - All tasks, timetable sessions, notes, events, marks and study metrics sync to your Supabase project and follow you across devices.
+   - All tasks, timetable sessions, notes, flashcards, events, marks and study metrics sync to your Supabase project and follow you across devices.
    - Every save also writes a **per-account device mirror** to your browser's local storage — if the cloud ever comes back empty on sign-in, the last saved workspace is restored from this device instead of showing a blank app. (Failed syncs are now surfaced with a toast instead of failing silently.)
    - Secured with Row Level Security: no user can ever read or edit another user's data.
 
-12. **🎨 Design, themes & phones**
-   - Warm "paper & ink" look with Inter + Fraunces, consistent subject colours across every view.
+13. **🎨 Design, motion, themes & phones**
+   - "Aurora" palette — lavender-white surfaces with indigo → violet → pink gradient accents, Inter + Fraunces type, and consistent subject colours across every view.
+   - Motion throughout: staggered page entrances, numbers that count up, charts that grow and draw in, a sliding nav indicator, click ripples, a cursor spotlight on cards, rows that collapse away on delete and flash back on undo, toasts with a countdown bar, and confetti bursting from whatever you just completed.
+   - Switching theme plays a circular reveal from the toggle (in browsers with the View Transitions API).
+   - Respects **reduced motion**: with that system setting on, animations are skipped and the drifting backgrounds are hidden.
    - Light and dark themes (follows your OS until you choose), remembered across sessions.
    - On phones: a bottom navigation bar with a central **+** button, dialogs that open as bottom sheets, a compact calendar with event dots, and no horizontal scrolling from 360px up.
 

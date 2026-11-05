@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>StudyBuddy — Study Planner</title>
   <meta name="description" content="StudyBuddy is a calm, modern study planner for students. Track assignments, plan your week, take notes, focus with a Pomodoro timer and see your grades in one place.">
-  <meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%234655d4'/><path d='M14 26l18-9 18 9-18 9z' fill='white'/><path d='M22 31v8c0 3 5 6 10 6s10-3 10-6v-8l-10 5z' fill='white' opacity='.85'/></svg>">
+  <meta name="theme-color" content="#f5f5fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b13" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%235b4cf0'/><path d='M14 26l18-9 18 9-18 9z' fill='white'/><path d='M22 31v8c0 3 5 6 10 6s10-3 10-6v-8l-10 5z' fill='white' opacity='.85'/></svg>">
 
   <!-- Fonts: Inter (interface) + Fraunces (display) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -105,6 +105,9 @@
           <span class="logo-mark"><i class="fa-solid fa-graduation-cap"></i></span>
           <span class="brand-name">StudyBuddy</span>
         </div>
+        <button id="collapse-sidebar-btn" class="icon-btn icon-btn-sm collapse-sidebar-btn" aria-label="Collapse sidebar" title="Collapse sidebar">
+          <i class="fa-solid fa-angles-left"></i>
+        </button>
         <button id="close-sidebar-btn" class="icon-btn close-sidebar" aria-label="Close menu">
           <i class="fa-solid fa-xmark"></i>
         </button>
@@ -141,6 +144,11 @@
         <button class="nav-item" data-tab="notes">
           <i class="fa-regular fa-note-sticky"></i>
           <span>Notes</span>
+        </button>
+        <button class="nav-item" data-tab="flashcards">
+          <i class="fa-solid fa-layer-group"></i>
+          <span>Flashcards</span>
+          <span class="nav-count" id="flashcards-badge">0</span>
         </button>
         <button class="nav-item" data-tab="marks">
           <i class="fa-solid fa-award"></i>
@@ -236,6 +244,7 @@
       <section class="tab-pane active" id="tab-dashboard">
         <div class="dash-hero">
           <div class="dash-hero-main">
+            <span class="aurora" aria-hidden="true"><i></i><i></i><i></i></span>
             <span class="eyebrow" id="dash-date">Today</span>
             <h2 class="dash-greeting" id="dash-greeting">Hello there</h2>
             <p class="dash-summary" id="dash-summary">Let's make today count.</p>
@@ -248,6 +257,9 @@
               </button>
               <button class="btn btn-soft" id="dash-add-event-btn">
                 <i class="fa-regular fa-calendar-plus"></i> Event
+              </button>
+              <button class="btn btn-soft hidden" id="dash-review-btn">
+                <i class="fa-solid fa-layer-group"></i> <span>Review cards</span>
               </button>
             </div>
           </div>
@@ -564,6 +576,90 @@
       </section>
 
       <!-- ================================================================
+           TAB: FLASHCARDS (spaced repetition)
+           ================================================================ -->
+      <section class="tab-pane" id="tab-flashcards">
+        <div id="fc-decks-view">
+          <div class="toolbar">
+            <div class="search-input-wrapper">
+              <i class="fa-solid fa-magnifying-glass search-icon"></i>
+              <input type="search" id="deck-search-input" placeholder="Search decks and cards…" class="form-input" aria-label="Search decks">
+            </div>
+            <span class="card-hint" id="fc-summary"></span>
+            <button id="add-deck-btn" class="btn btn-primary toolbar-action">
+              <i class="fa-solid fa-plus"></i> <span>New deck</span>
+            </button>
+          </div>
+          <div class="deck-grid" id="deck-grid"></div>
+          <div class="empty-state hidden" id="decks-empty-state">
+            <div class="empty-icon"><i class="fa-solid fa-layer-group"></i></div>
+            <h3 id="decks-empty-title">Make your first deck</h3>
+            <p id="decks-empty-text">Turn definitions, formulas and dates into flashcards. StudyBuddy schedules reviews so the cards you struggle with come back sooner.</p>
+            <button class="btn btn-primary" id="empty-state-add-deck-btn"><i class="fa-solid fa-plus"></i> New deck</button>
+          </div>
+        </div>
+
+        <div id="fc-deck-view" class="hidden">
+          <div class="fc-header">
+            <button class="icon-btn" id="fc-back-btn" aria-label="Back to decks" title="Back to decks"><i class="fa-solid fa-arrow-left"></i></button>
+            <h3 id="fc-deck-title">Deck</h3>
+            <button class="btn btn-sm btn-ghost" id="fc-edit-deck-btn"><i class="fa-solid fa-pen"></i> Rename</button>
+            <button class="btn btn-sm btn-ghost btn-danger-text" id="fc-delete-deck-btn"><i class="fa-regular fa-trash-can"></i> Delete</button>
+            <button class="btn btn-primary" id="fc-study-btn"><i class="fa-solid fa-play"></i> <span id="fc-study-label">Study</span></button>
+          </div>
+          <form class="card fc-add" id="fc-add-form" autocomplete="off">
+            <textarea id="fc-front-input" class="form-textarea" rows="2" placeholder="Front — a question or term" aria-label="Card front"></textarea>
+            <textarea id="fc-back-input" class="form-textarea" rows="2" placeholder="Back — the answer" aria-label="Card back"></textarea>
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Add card</button>
+          </form>
+          <p class="form-hint"><i class="fa-regular fa-keyboard"></i> Ctrl + Enter adds the card and keeps you typing.</p>
+          <div class="fc-list" id="fc-card-list"></div>
+          <div class="empty-state empty-state-sm hidden" id="fc-cards-empty">
+            <div class="empty-icon"><i class="fa-regular fa-clone"></i></div>
+            <h3>No cards yet</h3>
+            <p>Add a question on the front and the answer on the back.</p>
+          </div>
+        </div>
+
+        <div id="fc-study-view" class="hidden">
+          <div class="study-wrap">
+            <div class="study-top">
+              <button class="icon-btn" id="fc-study-exit-btn" aria-label="End session" title="End session (Esc)"><i class="fa-solid fa-xmark"></i></button>
+              <div class="study-progress"><span id="fc-study-bar" style="width: 0%"></span></div>
+              <span class="study-count" id="fc-study-count">0 / 0</span>
+            </div>
+            <div id="fc-study-stage">
+              <div class="flip-card" id="fc-flip-card" tabindex="0" role="button" aria-label="Flip card">
+                <div class="flip-inner">
+                  <div class="flip-face flip-front">
+                    <span class="flip-label" id="fc-front-label">Question</span>
+                    <div class="flip-text" id="fc-front-text"></div>
+                    <span class="flip-hint"><i class="fa-solid fa-rotate"></i> Click or press Space to flip</span>
+                  </div>
+                  <div class="flip-face flip-back">
+                    <span class="flip-label">Answer</span>
+                    <div class="flip-text" id="fc-back-text"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="grade-buttons is-hidden" id="fc-grade-buttons">
+                <button type="button" class="btn grade-again" data-grade="again">Again <small id="fc-int-again">1 · see it again soon</small></button>
+                <button type="button" class="btn grade-good" data-grade="good">Good <small id="fc-int-good">2</small></button>
+                <button type="button" class="btn grade-easy" data-grade="easy">Easy <small id="fc-int-easy">3</small></button>
+              </div>
+            </div>
+            <div class="card study-done hidden" id="fc-study-done">
+              <span class="study-done-icon">🎉</span>
+              <h3 id="fc-done-title">Session complete</h3>
+              <p id="fc-done-text">Nice work.</p>
+              <div class="study-done-stats" id="fc-done-stats"></div>
+              <button class="btn btn-primary" id="fc-done-back-btn"><i class="fa-solid fa-layer-group"></i> Back to decks</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
            TAB: PRIVATE JOURNAL
            ================================================================ -->
       <section class="tab-pane" id="tab-journal">
@@ -783,6 +879,12 @@
 
             <div class="timer-clock-wrapper">
               <svg class="timer-svg" viewBox="0 0 200 200" aria-hidden="true">
+                <defs>
+                  <linearGradient id="timer-grad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" style="stop-color: var(--mode)" />
+                    <stop offset="100%" style="stop-color: var(--mode-2)" />
+                  </linearGradient>
+                </defs>
                 <circle class="timer-circle-bg" cx="100" cy="100" r="90" />
                 <circle class="timer-circle-progress" id="timer-progress-circle" cx="100" cy="100" r="90" />
               </svg>
@@ -815,7 +917,10 @@
 
             <div class="timer-footer">
               <span class="badge badge-accent" id="pomodoro-sessions-counter">0 sessions logged</span>
-              <button class="btn btn-sm btn-ghost" id="timer-settings-btn"><i class="fa-solid fa-sliders"></i> Timer settings</button>
+              <div class="timer-footer-actions">
+                <button class="btn btn-sm btn-soft" id="focus-mode-btn" title="Full-screen focus mode (Shift+F)"><i class="fa-solid fa-expand"></i> Focus mode</button>
+                <button class="icon-btn icon-btn-sm" id="timer-settings-btn" title="Timer settings" aria-label="Timer settings"><i class="fa-solid fa-sliders"></i></button>
+              </div>
             </div>
           </div>
 
@@ -934,6 +1039,30 @@
               <div class="trend-chart" id="marks-trend-chart"></div>
             </div>
           </div>
+          <div class="card calc-card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>What do I need?</h3>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="calc-grid">
+                <div class="form-group">
+                  <label for="calc-subject" class="form-label">Subject</label>
+                  <select id="calc-subject" class="form-select"><option value="all">All subjects</option></select>
+                </div>
+                <div class="form-group">
+                  <label for="calc-target" class="form-label">Target (%)</label>
+                  <input type="number" id="calc-target" class="form-input" min="1" max="100" step="1" value="80">
+                </div>
+                <div class="form-group">
+                  <label for="calc-weight" class="form-label">Next test is worth (%)</label>
+                  <input type="number" id="calc-weight" class="form-input" min="1" max="100" step="1" value="30">
+                </div>
+              </div>
+              <div class="calc-result" id="calc-result"></div>
+            </div>
+          </div>
         </div>
 
         <div class="toolbar">
@@ -989,6 +1118,7 @@
     <button class="menu-item" role="menuitem" data-create="slot"><i class="fa-solid fa-table-cells"></i><span>Timetable slot</span><kbd class="kbd">S</kbd></button>
     <button class="menu-item" role="menuitem" data-create="note"><i class="fa-regular fa-note-sticky"></i><span>Note</span><kbd class="kbd">N</kbd></button>
     <button class="menu-item" role="menuitem" data-create="mark"><i class="fa-solid fa-award"></i><span>Mark</span><kbd class="kbd">M</kbd></button>
+    <button class="menu-item" role="menuitem" data-create="deck"><i class="fa-solid fa-layer-group"></i><span>Flashcard deck</span><kbd class="kbd">D</kbd></button>
   </div>
 
   <!-- Command palette -->
@@ -1006,6 +1136,43 @@
         <span class="palette-footer-hint"><kbd class="kbd">?</kbd> shortcuts</span>
       </div>
     </div>
+  </div>
+
+  <!-- Full-screen focus mode -->
+  <div class="focus-overlay" id="focus-overlay" data-mode="pomodoro" role="dialog" aria-modal="true" aria-label="Focus mode">
+    <div class="fo-aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+    <button class="icon-btn fo-exit" id="fo-exit-btn" aria-label="Exit focus mode" title="Exit focus mode (Esc)"><i class="fa-solid fa-compress"></i></button>
+    <span class="fo-mode" id="fo-mode">Focus</span>
+    <div class="fo-clock">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <linearGradient id="fo-grad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" style="stop-color: var(--mode)" />
+            <stop offset="100%" style="stop-color: var(--mode-2)" />
+          </linearGradient>
+        </defs>
+        <circle class="fo-track" cx="100" cy="100" r="92" />
+        <circle class="fo-progress" id="fo-progress" cx="100" cy="100" r="92" />
+      </svg>
+      <div class="fo-center">
+        <span class="fo-time" id="fo-time">25:00</span>
+        <span class="fo-task" id="fo-task">Just focusing</span>
+        <div class="fo-dots" id="fo-dots"></div>
+      </div>
+    </div>
+    <div class="fo-controls">
+      <button type="button" class="fo-btn" id="fo-reset-btn" aria-label="Reset timer" title="Reset"><i class="fa-solid fa-rotate-left"></i></button>
+      <button type="button" class="fo-btn fo-btn-main" id="fo-toggle-btn" aria-label="Start"><i class="fa-solid fa-play"></i></button>
+      <button type="button" class="fo-btn" id="fo-skip-btn" aria-label="Skip to next" title="Skip"><i class="fa-solid fa-forward-step"></i></button>
+    </div>
+    <div class="fo-sound" id="fo-sound" role="group" aria-label="Ambient sound">
+      <button type="button" data-sound="off" class="active"><i class="fa-solid fa-volume-xmark"></i> Silence</button>
+      <button type="button" data-sound="rain"><i class="fa-solid fa-cloud-rain"></i> Rain</button>
+      <button type="button" data-sound="brown"><i class="fa-solid fa-water"></i> Deep</button>
+      <button type="button" data-sound="white"><i class="fa-solid fa-wind"></i> White</button>
+      <input type="range" id="fo-volume" min="0" max="100" value="50" aria-label="Ambient volume">
+    </div>
+    <p class="fo-hint"><kbd class="kbd">Space</kbd> start / pause &nbsp;·&nbsp; <kbd class="kbd">Esc</kbd> exit</p>
   </div>
 
   <!-- =====================================================================
@@ -1065,6 +1232,17 @@
             <div class="form-group">
               <label for="task-estimated-time-input" class="form-label">Estimated time (min)</label>
               <input type="number" id="task-estimated-time-input" class="form-input" min="5" step="5" placeholder="e.g. 60" value="45">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <span class="form-label">Checklist <span class="text-muted">— break it into steps</span></span>
+            <div class="subtask-editor">
+              <ul id="subtask-list"></ul>
+              <div class="subtask-add">
+                <i class="fa-solid fa-plus"></i>
+                <input type="text" id="subtask-new-input" placeholder="Add a step and press Enter" aria-label="New checklist step">
+              </div>
             </div>
           </div>
 
@@ -1200,6 +1378,67 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" id="cancel-note-btn">Cancel</button>
           <button type="submit" class="btn btn-primary" id="save-note-btn">Save note</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ADD / EDIT FLASHCARD DECK -->
+  <div class="modal-backdrop" id="deck-modal" role="dialog" aria-modal="true" aria-labelledby="deck-modal-title">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-header">
+        <h3 id="deck-modal-title">New deck</h3>
+        <button class="icon-btn modal-close-btn" id="close-deck-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form id="deck-form">
+        <div class="modal-body">
+          <input type="hidden" id="deck-id">
+          <div class="form-group">
+            <label for="deck-name-input" class="form-label">Deck name *</label>
+            <input type="text" id="deck-name-input" class="form-input form-input-lg" placeholder="e.g. Organic chemistry reactions" required maxlength="80">
+          </div>
+          <div class="form-group">
+            <label for="deck-subject-input" class="form-label">Subject</label>
+            <input type="text" id="deck-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Chemistry">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="cancel-deck-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-deck-btn">Create deck</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- EDIT FLASHCARD -->
+  <div class="modal-backdrop" id="card-modal" role="dialog" aria-modal="true" aria-labelledby="card-modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="card-modal-title">Edit card</h3>
+        <button class="icon-btn modal-close-btn" id="close-card-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form id="card-form">
+        <div class="modal-body">
+          <input type="hidden" id="card-id">
+          <div class="form-group">
+            <label for="card-front-input" class="form-label">Front *</label>
+            <textarea id="card-front-input" class="form-textarea" rows="3" required></textarea>
+          </div>
+          <div class="form-group">
+            <label for="card-back-input" class="form-label">Back *</label>
+            <textarea id="card-back-input" class="form-textarea" rows="4" required></textarea>
+          </div>
+          <label class="toggle-row">
+            <input type="checkbox" id="card-reset-input">
+            <span class="toggle"></span>
+            <span>Reset progress — show this card again today</span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost btn-danger-text" id="card-delete-btn"><i class="fa-regular fa-trash-can"></i> Delete</button>
+          <span class="modal-footer-spacer"></span>
+          <button type="button" class="btn btn-ghost" id="cancel-card-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save card</button>
         </div>
       </form>
     </div>
@@ -1459,7 +1698,9 @@
           <div><dt><kbd class="kbd">M</kbd></dt><dd>Record a mark</dd></div>
           <div><dt><kbd class="kbd">S</kbd></dt><dd>New timetable slot</dd></div>
           <div><dt><kbd class="kbd">F</kbd></dt><dd>Start / pause focus timer</dd></div>
-          <div><dt><kbd class="kbd">1</kbd>–<kbd class="kbd">8</kbd></dt><dd>Jump to a section</dd></div>
+          <div><dt><kbd class="kbd">Shift</kbd>+<kbd class="kbd">F</kbd></dt><dd>Full-screen focus mode</dd></div>
+          <div><dt><kbd class="kbd">R</kbd></dt><dd>Review due flashcards</dd></div>
+          <div><dt><kbd class="kbd">1</kbd>–<kbd class="kbd">9</kbd></dt><dd>Jump to a section</dd></div>
           <div><dt><kbd class="kbd">T</kbd></dt><dd>Toggle dark mode</dd></div>
           <div><dt><kbd class="kbd">?</kbd></dt><dd>Show this list</dd></div>
         </dl>
