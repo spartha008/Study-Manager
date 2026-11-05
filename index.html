@@ -2,189 +2,197 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>StudyBuddy - Smart Student Study Planner & Dashboard</title>
-  <meta name="description" content="StudyBuddy is a clean, modern study management platform for students. Track assignments, plan daily study timetables, organize notes, and monitor your academic progress.">
-  
-  <!-- Google Fonts: Plus Jakarta Sans & Outfit -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>StudyBuddy — Study Planner</title>
+  <meta name="description" content="StudyBuddy is a calm, modern study planner for students. Track assignments, plan your week, take notes, focus with a Pomodoro timer and see your grades in one place.">
+  <meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%234655d4'/><path d='M14 26l18-9 18 9-18 9z' fill='white'/><path d='M22 31v8c0 3 5 6 10 6s10-3 10-6v-8l-10 5z' fill='white' opacity='.85'/></svg>">
+
+  <!-- Fonts: Inter (interface) + Fraunces (display) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <!-- Font Awesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  
-  <!-- Main Stylesheet -->
+
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- AUTH SCREEN: shown until the user signs in with Google -->
+  <!-- =====================================================================
+       AUTH SCREEN — shown until the user signs in with Google
+       ===================================================================== -->
   <div class="auth-screen" id="auth-screen">
-    <div class="auth-card">
-      <button id="theme-toggle-auth" class="icon-btn theme-toggle-btn auth-theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
-        <i class="fa-solid fa-moon"></i>
-      </button>
-      <div class="auth-brand">
-        <div class="logo-icon logo-icon-lg">
-          <i class="fa-solid fa-graduation-cap"></i>
-        </div>
-        <div class="brand-text">
+    <div class="auth-shell">
+      <section class="auth-showcase" aria-hidden="true">
+        <div class="brand brand-light">
+          <span class="logo-mark"><i class="fa-solid fa-graduation-cap"></i></span>
           <span class="brand-name">StudyBuddy</span>
-          <span class="brand-subtitle">Student Workspace</span>
         </div>
-      </div>
+        <h2 class="auth-showcase-title">A calmer way to run your semester.</h2>
+        <div class="auth-preview">
+          <div class="auth-preview-card">
+            <span class="auth-preview-eyebrow">Today</span>
+            <div class="auth-preview-row"><span class="dot" style="--subj: var(--hue-0)"></span> Calculus problem set <em>Due today</em></div>
+            <div class="auth-preview-row"><span class="dot" style="--subj: var(--hue-2)"></span> Chemistry lab · 14:00</div>
+            <div class="auth-preview-row"><span class="dot" style="--subj: var(--hue-4)"></span> History essay draft <em>Fri</em></div>
+          </div>
+          <div class="auth-preview-card auth-preview-timer">
+            <span class="auth-preview-eyebrow">Focus</span>
+            <strong>24:13</strong>
+            <span class="auth-preview-bar"><span style="width: 62%"></span></span>
+          </div>
+        </div>
+        <ul class="auth-points">
+          <li><i class="fa-solid fa-list-check"></i> Assignments grouped by what's due next</li>
+          <li><i class="fa-solid fa-calendar-check"></i> Calendar with reminders &amp; live countdowns</li>
+          <li><i class="fa-solid fa-stopwatch"></i> Pomodoro timer with a weekly focus chart</li>
+          <li><i class="fa-solid fa-award"></i> Marks, averages &amp; letter grades</li>
+          <li><i class="fa-solid fa-lock"></i> An encrypted journal only you can open</li>
+        </ul>
+      </section>
 
-      <h1 class="auth-title">Your study planner, <span class="text-primary">just for you</span></h1>
-      <p class="auth-subtitle">
-        Sign in to get your own personal workspace. Your assignments, timetable,
-        notes and focus stats sync securely to your account.
-      </p>
+      <section class="auth-card">
+        <button id="theme-toggle-auth" class="icon-btn theme-toggle-btn auth-theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+          <i class="fa-solid fa-moon"></i>
+        </button>
+        <div class="brand auth-card-brand">
+          <span class="logo-mark"><i class="fa-solid fa-graduation-cap"></i></span>
+          <span class="brand-name">StudyBuddy</span>
+        </div>
+        <h1 class="auth-title">Welcome to your study space</h1>
+        <p class="auth-subtitle">
+          Sign in to get a private workspace. Your assignments, timetable, notes, marks and focus
+          stats sync securely to your account.
+        </p>
 
-      <ul class="auth-features">
-        <li><i class="fa-solid fa-circle-check text-emerald"></i> Personal assignments &amp; to-do lists</li>
-        <li><i class="fa-solid fa-circle-check text-emerald"></i> Daily study timetable &amp; reminders</li>
-        <li><i class="fa-solid fa-circle-check text-emerald"></i> Notes, Pomodoro stats &amp; streaks</li>
-        <li><i class="fa-solid fa-circle-check text-emerald"></i> Calendar events, reminders &amp; countdowns</li>
-        <li><i class="fa-solid fa-circle-check text-emerald"></i> Test marks, averages &amp; grades</li>
-      </ul>
+        <button id="google-signin-btn" class="btn google-btn btn-lg">
+          <svg class="google-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          <span id="google-signin-label">Continue with Google</span>
+        </button>
 
-      <button id="google-signin-btn" class="btn google-btn btn-lg">
-        <svg class="google-icon" viewBox="0 0 48 48" aria-hidden="true">
-          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-        </svg>
-        <span id="google-signin-label">Continue with Google</span>
-      </button>
+        <p class="auth-error hidden" id="auth-error"></p>
 
-      <p class="auth-error hidden" id="auth-error"></p>
-
-      <p class="auth-footnote">
-        <i class="fa-solid fa-lock"></i> Only you can access your data — protected by row-level security.
-        <span class="auth-build-tag" id="auth-build"></span>
-      </p>
+        <p class="auth-footnote">
+          <i class="fa-solid fa-shield-halved"></i> Only you can access your data — protected by row-level security.
+          <span class="auth-build-tag" id="auth-build"></span>
+        </p>
+      </section>
     </div>
   </div>
 
   <!-- AUTH LOADING: shown while the session / workspace is being prepared -->
   <div class="auth-loading hidden" id="auth-loading">
+    <span class="logo-mark logo-mark-lg"><i class="fa-solid fa-graduation-cap"></i></span>
     <div class="auth-loading-spinner"></div>
     <p id="auth-loading-text">Preparing your workspace…</p>
   </div>
 
-  <!-- MAIN APP (hidden until signed in) -->
+  <!-- =====================================================================
+       MAIN APP (hidden until signed in)
+       ===================================================================== -->
   <div class="app-layout hidden" id="app-layout">
-    <!-- Mobile Header -->
-    <header class="mobile-header">
-      <div class="brand">
-        <div class="logo-icon">
-          <i class="fa-solid fa-graduation-cap"></i>
-        </div>
-        <span class="brand-name">StudyBuddy</span>
-      </div>
-      <div class="mobile-actions">
-        <button id="theme-toggle-mobile" class="icon-btn theme-toggle-btn" aria-label="Toggle dark mode" title="Toggle dark mode">
-          <i class="fa-solid fa-moon"></i>
-        </button>
-        <button id="mobile-menu-btn" class="icon-btn" aria-label="Toggle Navigation Menu">
-          <i class="fa-solid fa-bars"></i>
-        </button>
-      </div>
-    </header>
-
     <!-- Sidebar Navigation -->
-    <aside class="sidebar" id="sidebar">
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <div class="sidebar-header">
         <div class="brand">
-          <div class="logo-icon">
-            <i class="fa-solid fa-graduation-cap"></i>
-          </div>
-          <div class="brand-text">
-            <span class="brand-name">StudyBuddy</span>
-            <span class="brand-subtitle">Student Workspace</span>
-          </div>
+          <span class="logo-mark"><i class="fa-solid fa-graduation-cap"></i></span>
+          <span class="brand-name">StudyBuddy</span>
         </div>
-        <button id="close-sidebar-btn" class="icon-btn close-sidebar" aria-label="Close Sidebar">
+        <button id="close-sidebar-btn" class="icon-btn close-sidebar" aria-label="Close menu">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
 
-      <!-- Quick User Card -->
-      <div class="user-profile-badge">
-        <div class="avatar" id="sidebar-avatar">
-          <i class="fa-solid fa-user-graduate"></i>
-        </div>
-        <div class="user-info">
-          <span class="user-name" id="display-user-name">Student</span>
-          <span class="user-level" id="sidebar-streak"><i class="fa-solid fa-fire text-amber"></i> 0 Day Streak</span>
-        </div>
-      </div>
+      <button class="sidebar-search" id="sidebar-search-btn" type="button">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <span>Search…</span>
+        <kbd class="kbd" data-shortcut-label>Ctrl K</kbd>
+      </button>
 
-      <!-- Navigation Links -->
       <nav class="nav-menu">
+        <span class="nav-section-label">Plan</span>
         <button class="nav-item active" data-tab="dashboard">
-          <i class="fa-solid fa-table-columns"></i>
-          <span>Dashboard</span>
+          <i class="fa-solid fa-house"></i>
+          <span>Today</span>
         </button>
         <button class="nav-item" data-tab="assignments">
           <i class="fa-solid fa-list-check"></i>
           <span>Assignments</span>
-          <span class="badge" id="pending-badge">0</span>
+          <span class="nav-count" id="pending-badge">0</span>
         </button>
         <button class="nav-item" data-tab="calendar">
-          <i class="fa-solid fa-calendar-check"></i>
+          <i class="fa-regular fa-calendar"></i>
           <span>Calendar</span>
-          <span class="badge" id="calendar-badge">0</span>
+          <span class="nav-count" id="calendar-badge">0</span>
         </button>
         <button class="nav-item" data-tab="timetable">
-          <i class="fa-solid fa-calendar-days"></i>
-          <span>Study Timetable</span>
+          <i class="fa-solid fa-table-cells"></i>
+          <span>Timetable</span>
         </button>
+
+        <span class="nav-section-label">Learn</span>
         <button class="nav-item" data-tab="notes">
-          <i class="fa-solid fa-book-open"></i>
-          <span>Notes & Ideas</span>
+          <i class="fa-regular fa-note-sticky"></i>
+          <span>Notes</span>
         </button>
+        <button class="nav-item" data-tab="marks">
+          <i class="fa-solid fa-award"></i>
+          <span>Marks &amp; Grades</span>
+          <span class="nav-count" id="marks-badge">0</span>
+        </button>
+        <button class="nav-item" data-tab="progress">
+          <i class="fa-solid fa-stopwatch"></i>
+          <span>Focus &amp; Progress</span>
+          <span class="nav-live hidden" id="nav-timer-live" title="Timer running"></span>
+        </button>
+
+        <span class="nav-section-label">Private</span>
         <button class="nav-item" data-tab="journal">
           <i class="fa-solid fa-feather-pointed"></i>
           <span>Journal</span>
           <span class="journal-nav-lock" id="journal-nav-lock" title="Password protected"><i class="fa-solid fa-lock"></i></span>
         </button>
-        <button class="nav-item" data-tab="progress">
-          <i class="fa-solid fa-chart-line"></i>
-          <span>Progress & Timer</span>
-        </button>
-        <button class="nav-item" data-tab="marks">
-          <i class="fa-solid fa-award"></i>
-          <span>Marks & Grades</span>
-          <span class="badge" id="marks-badge">0</span>
-        </button>
       </nav>
 
-      <!-- Mini Pomodoro Box in Sidebar -->
-      <div class="sidebar-widget">
+      <!-- Mini Pomodoro -->
+      <div class="sidebar-widget" id="sidebar-widget">
         <div class="widget-header">
-          <span><i class="fa-solid fa-stopwatch text-primary"></i> Quick Timer</span>
+          <span class="widget-title"><i class="fa-solid fa-stopwatch"></i> Quick timer</span>
           <span id="sidebar-timer-mode" class="widget-tag">Focus</span>
         </div>
         <div class="widget-timer-display" id="sidebar-timer-time">25:00</div>
+        <div class="widget-progress"><span id="sidebar-timer-bar"></span></div>
         <div class="widget-controls">
           <button id="sidebar-timer-start-btn" class="btn btn-sm btn-primary">
             <i class="fa-solid fa-play"></i> Start
           </button>
-          <button id="sidebar-timer-reset-btn" class="btn btn-sm btn-ghost">
+          <button id="sidebar-timer-reset-btn" class="btn btn-sm btn-ghost" aria-label="Reset timer" title="Reset timer">
             <i class="fa-solid fa-rotate-right"></i>
           </button>
         </div>
       </div>
 
-      <!-- Footer Help, Reset & Sign Out -->
-      <div class="sidebar-footer">
-        <button id="clear-all-data-btn" class="btn-text">
-          <i class="fa-solid fa-broom"></i> Clear All Data
+      <!-- Account -->
+      <div class="sidebar-user">
+        <div class="avatar" id="sidebar-avatar">
+          <i class="fa-solid fa-user"></i>
+        </div>
+        <div class="user-info">
+          <span class="user-name" id="display-user-name">Student</span>
+          <span class="user-level" id="sidebar-streak"><i class="fa-solid fa-fire"></i> No streak yet</span>
+        </div>
+        <button id="open-settings-btn" class="icon-btn icon-btn-sm" aria-label="Settings" title="Settings">
+          <i class="fa-solid fa-gear"></i>
         </button>
-        <button id="sign-out-btn" class="btn-text btn-sign-out">
-          <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out
+        <button id="sign-out-btn" class="icon-btn icon-btn-sm" aria-label="Sign out" title="Sign out">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i>
         </button>
       </div>
     </aside>
@@ -194,332 +202,285 @@
 
     <!-- Main Content Area -->
     <main class="main-content">
-      <!-- Top Bar on Desktop -->
       <header class="topbar">
-        <div class="topbar-greeting">
-          <h1 id="page-title">Welcome back, Alex! 👋</h1>
-          <p class="subtitle" id="current-date-display">Monday, October 19, 2026</p>
+        <button id="mobile-menu-btn" class="icon-btn mobile-only" aria-label="Open menu">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+        <div class="topbar-title">
+          <h1 id="page-title">Today</h1>
+          <p class="subtitle" id="page-subtitle">—</p>
         </div>
         <div class="topbar-actions">
-          <div class="quick-stat-pill">
-            <i class="fa-solid fa-circle-check text-emerald"></i>
-            <span id="quick-done-count">0 Completed</span>
-          </div>
+          <button class="search-trigger" id="open-palette-btn" type="button" aria-label="Search and commands">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <span class="search-trigger-label">Search or jump to…</span>
+            <kbd class="kbd" data-shortcut-label>Ctrl K</kbd>
+          </button>
           <button id="theme-toggle" class="icon-btn theme-toggle-btn" aria-label="Toggle dark mode" title="Toggle dark mode">
             <i class="fa-solid fa-moon"></i>
           </button>
-          <button id="quick-add-task-btn" class="btn btn-primary">
-            <i class="fa-solid fa-plus"></i>
-            <span>New Assignment</span>
-          </button>
-        </div>
-      </header>
-
-      <!-- TAB 1: DASHBOARD -->
-      <section class="tab-pane active" id="tab-dashboard">
-        <!-- Motivational Banner -->
-        <div class="quote-banner">
-          <div class="quote-content">
-            <span class="quote-tag">Daily Inspiration</span>
-            <p class="quote-text" id="quote-text">"Success is the sum of small efforts, repeated day in and day out."</p>
-            <span class="quote-author" id="quote-author">— Robert Collier</span>
-          </div>
-          <div class="quote-illustration">
-            <i class="fa-solid fa-lightbulb"></i>
-          </div>
-        </div>
-
-        <!-- Metric Cards -->
-        <div class="metrics-grid">
-          <div class="metric-card" data-metric="pending">
-            <div class="metric-icon bg-blue-subtle text-blue">
-              <i class="fa-solid fa-clock"></i>
-            </div>
-            <div class="metric-info">
-              <span class="metric-value" id="stat-pending">0</span>
-              <span class="metric-label">Pending Tasks</span>
-            </div>
-            <button class="metric-link" data-tab="assignments"><i class="fa-solid fa-arrow-right"></i></button>
-          </div>
-
-          <div class="metric-card" data-metric="completed">
-            <div class="metric-icon bg-emerald-subtle text-emerald">
-              <i class="fa-solid fa-circle-check"></i>
-            </div>
-            <div class="metric-info">
-              <span class="metric-value" id="stat-completed">0</span>
-              <span class="metric-label">Completed Tasks</span>
-            </div>
-            <button class="metric-link" data-tab="assignments"><i class="fa-solid fa-arrow-right"></i></button>
-          </div>
-
-          <div class="metric-card" data-metric="today-sessions">
-            <div class="metric-icon bg-sky-subtle text-primary">
-              <i class="fa-solid fa-calendar-check"></i>
-            </div>
-            <div class="metric-info">
-              <span class="metric-value" id="stat-today-slots">0</span>
-              <span class="metric-label">Today's Sessions</span>
-            </div>
-            <button class="metric-link" data-tab="timetable"><i class="fa-solid fa-arrow-right"></i></button>
-          </div>
-
-          <div class="metric-card" data-metric="study-hours">
-            <div class="metric-icon bg-purple-subtle text-purple">
-              <i class="fa-solid fa-stopwatch"></i>
-            </div>
-            <div class="metric-info">
-              <span class="metric-value" id="stat-study-time">0m</span>
-              <span class="metric-label">Focused Time</span>
-            </div>
-            <button class="metric-link" data-tab="progress"><i class="fa-solid fa-arrow-right"></i></button>
-          </div>
-        </div>
-
-        <!-- 2 Column Section: Today's Priorities & Today's Schedule -->
-        <div class="dashboard-grid">
-          <!-- Left: Urgent / Upcoming Assignments -->
-          <div class="card dashboard-card">
-            <div class="card-header">
-              <div class="card-title-group">
-                <i class="fa-solid fa-fire text-amber"></i>
-                <h2>Upcoming Assignments</h2>
-              </div>
-              <button class="btn btn-sm btn-outline" data-tab="assignments">View All</button>
-            </div>
-            <div class="card-body">
-              <div class="task-list-compact" id="dashboard-urgent-tasks">
-                <!-- Dynamically injected -->
-              </div>
-            </div>
-          </div>
-
-          <!-- Right: Today's Study Schedule -->
-          <div class="card dashboard-card">
-            <div class="card-header">
-              <div class="card-title-group">
-                <i class="fa-solid fa-calendar-day text-primary"></i>
-                <h2>Today's Timetable</h2>
-              </div>
-              <button class="btn btn-sm btn-outline" data-tab="timetable">Full Schedule</button>
-            </div>
-            <div class="card-body">
-              <div class="timeline-compact" id="dashboard-today-schedule">
-                <!-- Dynamically injected -->
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Upcoming Reminders & Countdowns -->
-        <div class="card dashboard-card reminders-card" id="dashboard-reminders-card">
-          <div class="card-header">
-            <div class="card-title-group">
-              <i class="fa-solid fa-bell text-rose"></i>
-              <h2>Upcoming Reminders</h2>
-            </div>
-            <button class="btn btn-sm btn-outline" data-tab="calendar">Open Calendar</button>
-          </div>
-          <div class="card-body">
-            <div class="reminder-toolbar">
-              <span class="text-sm text-muted">
-                <i class="fa-solid fa-bell"></i> Countdowns update automatically.
-              </span>
-              <button class="btn btn-sm btn-ghost" id="enable-notifications-btn">
-                <i class="fa-regular fa-bell"></i> Enable desktop reminders
-              </button>
-            </div>
-            <div class="reminder-list" id="dashboard-reminders-list">
-              <!-- Dynamically populated upcoming events with live countdowns -->
-            </div>
-          </div>
-        </div>
-
-        <!-- Recent Notes & Goal Quick Look -->
-        <div class="dashboard-grid dashboard-grid-secondary">
-          <!-- Recent Study Notes -->
-          <div class="card dashboard-card">
-            <div class="card-header">
-              <div class="card-title-group">
-                <i class="fa-solid fa-note-sticky text-sky"></i>
-                <h2>Quick Notes</h2>
-              </div>
-              <button class="btn btn-sm btn-ghost" id="dash-new-note-btn"><i class="fa-solid fa-plus"></i> Add Note</button>
-            </div>
-            <div class="card-body">
-              <div class="notes-mini-grid" id="dashboard-recent-notes">
-                <!-- Dynamically injected -->
-              </div>
-            </div>
-          </div>
-
-          <!-- Overall Weekly Target Bar -->
-          <div class="card dashboard-card">
-            <div class="card-header">
-              <div class="card-title-group">
-                <i class="fa-solid fa-bullseye text-emerald"></i>
-                <h2>Weekly Goal Completion</h2>
-              </div>
-              <span class="badge badge-success" id="dash-goal-percent">0%</span>
-            </div>
-            <div class="card-body">
-              <p class="text-muted text-sm mb-2">Track completion across all assignments and timetable sessions.</p>
-              <div class="progress-bar-container">
-                <div class="progress-bar-fill" id="dash-progress-fill" style="width: 0%"></div>
-              </div>
-              <div class="goal-subtext">
-                <span id="dash-completed-ratio">0 of 0 items done</span>
-                <span class="text-primary font-medium" id="dash-encouragement">Keep going!</span>
-              </div>
-              <div class="quick-action-links mt-4">
-                <button class="quick-action-chip" id="chip-add-task"><i class="fa-solid fa-plus"></i> Add Assignment</button>
-                <button class="quick-action-chip" id="chip-add-schedule"><i class="fa-solid fa-calendar-plus"></i> Add Slot</button>
-                <button class="quick-action-chip" id="chip-start-focus"><i class="fa-solid fa-play"></i> 25m Focus</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- TAB 2: ASSIGNMENTS / TO-DO LIST -->
-      <section class="tab-pane" id="tab-assignments">
-        <div class="section-header">
-          <div>
-            <h2>Assignments & Tasks</h2>
-            <p class="subtitle">Keep track of your coursework, homework, exams, and projects.</p>
-          </div>
-          <button id="add-assignment-modal-btn" class="btn btn-primary">
-            <i class="fa-solid fa-plus"></i> New Assignment
-          </button>
-        </div>
-
-        <!-- Filter and Search Bar -->
-        <div class="filter-toolbar card">
-          <div class="search-input-wrapper">
-            <i class="fa-solid fa-magnifying-glass search-icon"></i>
-            <input type="text" id="task-search-input" placeholder="Search assignments by title or subject..." class="form-input">
-          </div>
-          
-          <div class="filter-groups">
-            <div class="filter-select-wrapper">
-              <label for="task-filter-status" class="filter-label">Status:</label>
-              <select id="task-filter-status" class="form-select">
-                <option value="all">All Statuses</option>
-                <option value="pending">Pending</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-
-            <div class="filter-select-wrapper">
-              <label for="task-filter-priority" class="filter-label">Priority:</label>
-              <select id="task-filter-priority" class="form-select">
-                <option value="all">All Priorities</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-
-            <div class="filter-select-wrapper">
-              <label for="task-filter-subject" class="filter-label">Subject:</label>
-              <select id="task-filter-subject" class="form-select">
-                <option value="all">All Subjects</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- Task List Container -->
-        <div class="tasks-container">
-          <div class="tasks-header-summary">
-            <span id="tasks-count-label">Showing 0 assignments</span>
-            <div class="bulk-actions">
-              <button id="clear-completed-tasks-btn" class="btn btn-sm btn-ghost text-muted">
-                <i class="fa-solid fa-trash-can"></i> Clear Completed
-              </button>
-            </div>
-          </div>
-
-          <div class="task-cards-list" id="task-cards-list">
-            <!-- Dynamic task items -->
-          </div>
-
-          <!-- Empty State -->
-          <div class="empty-state hidden" id="tasks-empty-state">
-            <div class="empty-icon"><i class="fa-solid fa-clipboard-check"></i></div>
-            <h3>No assignments found</h3>
-            <p>You're all caught up! Click below to create a new assignment.</p>
-            <button class="btn btn-primary mt-3" id="empty-state-add-task-btn">
-              <i class="fa-solid fa-plus"></i> Add Assignment
+          <div class="menu-anchor">
+            <button id="quick-add-btn" class="btn btn-primary quick-add-btn" aria-haspopup="menu" aria-expanded="false">
+              <i class="fa-solid fa-plus"></i>
+              <span>New</span>
             </button>
           </div>
         </div>
-      </section>
+      </header>
 
-      <!-- TAB: CALENDAR & EVENTS -->
-      <section class="tab-pane" id="tab-calendar">
-        <div class="section-header">
-          <div>
-            <h2>Calendar &amp; Events</h2>
-            <p class="subtitle">Plan study sessions, classes and exams, and never miss an important date.</p>
+      <div class="content">
+
+      <!-- ================================================================
+           TAB: TODAY (DASHBOARD)
+           ================================================================ -->
+      <section class="tab-pane active" id="tab-dashboard">
+        <div class="dash-hero">
+          <div class="dash-hero-main">
+            <span class="eyebrow" id="dash-date">Today</span>
+            <h2 class="dash-greeting" id="dash-greeting">Hello there</h2>
+            <p class="dash-summary" id="dash-summary">Let's make today count.</p>
+            <div class="dash-hero-actions">
+              <button class="btn btn-primary" id="dash-start-focus-btn">
+                <i class="fa-solid fa-play"></i> Start focus session
+              </button>
+              <button class="btn btn-soft" id="dash-add-task-btn">
+                <i class="fa-solid fa-plus"></i> Assignment
+              </button>
+              <button class="btn btn-soft" id="dash-add-event-btn">
+                <i class="fa-regular fa-calendar-plus"></i> Event
+              </button>
+            </div>
           </div>
-          <button id="add-event-btn" class="btn btn-primary">
-            <i class="fa-solid fa-plus"></i> New Event
+          <div class="dash-next" id="dash-next-up">
+            <!-- "Next up" card, rendered by JS -->
+          </div>
+        </div>
+
+        <div class="stat-row">
+          <button class="stat-tile" data-tab="assignments">
+            <span class="stat-tile-icon tone-accent"><i class="fa-solid fa-list-check"></i></span>
+            <span class="stat-tile-body">
+              <span class="stat-tile-value" id="stat-due-week">0</span>
+              <span class="stat-tile-label">Due this week</span>
+            </span>
+          </button>
+          <button class="stat-tile" data-tab="assignments">
+            <span class="stat-tile-icon tone-danger"><i class="fa-solid fa-triangle-exclamation"></i></span>
+            <span class="stat-tile-body">
+              <span class="stat-tile-value" id="stat-overdue">0</span>
+              <span class="stat-tile-label">Overdue</span>
+            </span>
+          </button>
+          <button class="stat-tile" data-tab="progress">
+            <span class="stat-tile-icon tone-violet"><i class="fa-solid fa-stopwatch"></i></span>
+            <span class="stat-tile-body">
+              <span class="stat-tile-value" id="stat-focus-today">0m</span>
+              <span class="stat-tile-label" id="stat-focus-goal-label">Focus today</span>
+              <span class="mini-bar"><span id="stat-focus-goal-bar"></span></span>
+            </span>
+          </button>
+          <button class="stat-tile" data-tab="progress">
+            <span class="stat-tile-icon tone-warning"><i class="fa-solid fa-fire"></i></span>
+            <span class="stat-tile-body">
+              <span class="stat-tile-value" id="stat-streak">0</span>
+              <span class="stat-tile-label">Day streak</span>
+            </span>
           </button>
         </div>
 
+        <div class="dash-grid">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>Today's plan</h3>
+                <span class="card-hint" id="dash-today-count"></span>
+              </div>
+              <button class="btn btn-sm btn-ghost" data-tab="timetable">Timetable <i class="fa-solid fa-arrow-right"></i></button>
+            </div>
+            <div class="card-body">
+              <div class="timeline" id="dash-today-list"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>Due soon</h3>
+                <span class="card-hint" id="dash-due-count"></span>
+              </div>
+              <button class="btn btn-sm btn-ghost" data-tab="assignments">All <i class="fa-solid fa-arrow-right"></i></button>
+            </div>
+            <div class="card-body">
+              <div class="task-list-compact" id="dashboard-urgent-tasks"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>This week</h3>
+              </div>
+              <button class="btn btn-sm btn-ghost" data-tab="progress">Stats <i class="fa-solid fa-arrow-right"></i></button>
+            </div>
+            <div class="card-body">
+              <div class="week-chart" id="dash-focus-chart"></div>
+              <div class="week-chart-foot">
+                <span id="dash-focus-week-total">0m focused</span>
+                <span id="dash-completion-label">0 of 0 assignments done</span>
+              </div>
+              <div class="progress-track"><span class="progress-fill" id="dash-progress-fill" style="width: 0%"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dash-grid dash-grid-2">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>Upcoming tests &amp; events</h3>
+              </div>
+              <button class="btn btn-sm btn-ghost" id="enable-notifications-btn">
+                <i class="fa-regular fa-bell"></i> <span>Enable reminders</span>
+              </button>
+            </div>
+            <div class="card-body">
+              <div class="reminder-list" id="dashboard-reminders-list"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>Recent notes</h3>
+              </div>
+              <button class="btn btn-sm btn-ghost" id="dash-new-note-btn"><i class="fa-solid fa-plus"></i> Note</button>
+            </div>
+            <div class="card-body">
+              <div class="notes-mini-grid" id="dashboard-recent-notes"></div>
+            </div>
+          </div>
+        </div>
+
+        <figure class="dash-quote">
+          <blockquote id="quote-text">Success is the sum of small efforts, repeated day in and day out.</blockquote>
+          <figcaption id="quote-author">— Robert Collier</figcaption>
+        </figure>
+      </section>
+
+      <!-- ================================================================
+           TAB: ASSIGNMENTS
+           ================================================================ -->
+      <section class="tab-pane" id="tab-assignments">
+        <div class="toolbar">
+          <div class="search-input-wrapper">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="search" id="task-search-input" placeholder="Search assignments…" class="form-input" aria-label="Search assignments">
+          </div>
+          <div class="segmented" id="task-status-segmented" role="tablist" aria-label="Filter by status">
+            <button class="segmented-btn active" data-status="pending">To do</button>
+            <button class="segmented-btn" data-status="completed">Done</button>
+            <button class="segmented-btn" data-status="all">All</button>
+          </div>
+          <div class="toolbar-selects">
+            <select id="task-filter-priority" class="form-select form-select-sm" aria-label="Filter by priority">
+              <option value="all">Any priority</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select id="task-filter-subject" class="form-select form-select-sm" aria-label="Filter by subject">
+              <option value="all">All subjects</option>
+            </select>
+            <select id="task-sort-select" class="form-select form-select-sm" aria-label="Sort assignments">
+              <option value="due">Sort: Due date</option>
+              <option value="priority">Sort: Priority</option>
+              <option value="recent">Sort: Recently added</option>
+            </select>
+          </div>
+          <button id="add-assignment-modal-btn" class="btn btn-primary toolbar-action">
+            <i class="fa-solid fa-plus"></i> <span>New assignment</span>
+          </button>
+        </div>
+
+        <form class="quick-add-row" id="task-quick-form" autocomplete="off">
+          <i class="fa-solid fa-plus"></i>
+          <input type="text" id="task-quick-input" class="quick-add-input" placeholder="Quick add an assignment…" aria-label="Quick add assignment">
+          <kbd class="kbd">Enter</kbd>
+        </form>
+
+        <div class="list-summary">
+          <span id="tasks-count-label">0 assignments</span>
+          <button id="clear-completed-tasks-btn" class="btn btn-sm btn-ghost">
+            <i class="fa-regular fa-trash-can"></i> Clear completed
+          </button>
+        </div>
+
+        <div class="task-groups" id="task-cards-list"></div>
+
+        <div class="empty-state hidden" id="tasks-empty-state">
+          <div class="empty-icon"><i class="fa-solid fa-clipboard-check"></i></div>
+          <h3 id="tasks-empty-title">Nothing to do — nice.</h3>
+          <p id="tasks-empty-text">Add an assignment and it'll be grouped by when it's due.</p>
+          <button class="btn btn-primary" id="empty-state-add-task-btn">
+            <i class="fa-solid fa-plus"></i> Add assignment
+          </button>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           TAB: CALENDAR & EVENTS
+           ================================================================ -->
+      <section class="tab-pane" id="tab-calendar">
         <div class="calendar-layout">
-          <!-- Month Grid -->
           <div class="card calendar-card">
             <div class="calendar-header">
               <div class="calendar-nav-group">
+                <h3 id="cal-month-title" class="calendar-month-title">Month</h3>
+              </div>
+              <div class="calendar-header-actions">
                 <button class="icon-btn" id="cal-prev-btn" aria-label="Previous month">
                   <i class="fa-solid fa-chevron-left"></i>
                 </button>
-                <h3 id="cal-month-title" class="calendar-month-title">October 2026</h3>
+                <button class="btn btn-sm btn-outline" id="cal-today-btn">Today</button>
                 <button class="icon-btn" id="cal-next-btn" aria-label="Next month">
                   <i class="fa-solid fa-chevron-right"></i>
                 </button>
+                <button id="add-event-btn" class="btn btn-sm btn-primary">
+                  <i class="fa-solid fa-plus"></i> <span>Event</span>
+                </button>
               </div>
-              <button class="btn btn-sm btn-outline" id="cal-today-btn">
-                <i class="fa-solid fa-calendar-day"></i> Today
-              </button>
             </div>
 
             <div class="calendar-weekdays">
               <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
             </div>
-            <div class="calendar-grid" id="calendar-grid">
-              <!-- Dynamically generated day cells -->
-            </div>
+            <div class="calendar-grid" id="calendar-grid"></div>
 
             <div class="calendar-legend">
-              <span class="legend-item"><i class="legend-dot dot-test"></i> Test / Exam</span>
-              <span class="legend-item"><i class="legend-dot dot-class"></i> Class</span>
-              <span class="legend-item"><i class="legend-dot dot-study"></i> Study</span>
-              <span class="legend-item"><i class="legend-dot dot-event"></i> Other</span>
+              <span class="legend-item"><i class="legend-dot type-test"></i> Test / Exam</span>
+              <span class="legend-item"><i class="legend-dot type-class"></i> Class</span>
+              <span class="legend-item"><i class="legend-dot type-study"></i> Study</span>
+              <span class="legend-item"><i class="legend-dot type-event"></i> Other</span>
+              <span class="legend-item"><i class="legend-dot type-due"></i> Assignment due</span>
             </div>
           </div>
 
-          <!-- Selected Day Agenda -->
           <div class="card calendar-agenda-card">
             <div class="card-header">
               <div class="card-title-group">
-                <i class="fa-solid fa-list-ul text-primary"></i>
-                <h2 id="agenda-date-title">Today's Agenda</h2>
+                <h3 id="agenda-date-title">Today</h3>
+                <span class="card-hint" id="agenda-count">0 items</span>
               </div>
-              <span class="badge badge-primary" id="agenda-count">0 events</span>
+              <button class="btn btn-sm btn-ghost" id="agenda-add-btn"><i class="fa-solid fa-plus"></i> Add</button>
             </div>
             <div class="card-body">
-              <div class="agenda-list" id="agenda-list">
-                <!-- Dynamically populated events for the selected day -->
-              </div>
-              <div class="empty-state hidden" id="agenda-empty-state">
+              <div class="agenda-list" id="agenda-list"></div>
+              <div class="empty-state empty-state-sm hidden" id="agenda-empty-state">
                 <div class="empty-icon"><i class="fa-regular fa-calendar"></i></div>
                 <h3>Nothing planned</h3>
-                <p>No events for this day yet.</p>
-                <button class="btn btn-primary mt-3" id="empty-state-add-event-btn">
-                  <i class="fa-solid fa-plus"></i> Add Event
+                <p>No events or deadlines on this day.</p>
+                <button class="btn btn-sm btn-primary" id="empty-state-add-event-btn">
+                  <i class="fa-solid fa-plus"></i> Add event
                 </button>
               </div>
             </div>
@@ -527,22 +488,17 @@
         </div>
       </section>
 
-      <!-- TAB 3: DAILY STUDY TIMETABLE -->
+      <!-- ================================================================
+           TAB: TIMETABLE
+           ================================================================ -->
       <section class="tab-pane" id="tab-timetable">
-        <div class="section-header">
-          <div>
-            <h2>Daily Study Timetable</h2>
-            <p class="subtitle">Structure your day with dedicated study slots, lectures, and revision times.</p>
+        <div class="toolbar">
+          <div class="segmented" id="tt-view-toggle" aria-label="Timetable view">
+            <button class="segmented-btn active" data-view="day"><i class="fa-solid fa-list"></i> Day</button>
+            <button class="segmented-btn" data-view="week"><i class="fa-solid fa-table-columns"></i> Week</button>
           </div>
-          <button id="add-timetable-slot-btn" class="btn btn-primary">
-            <i class="fa-solid fa-plus"></i> Add Study Slot
-          </button>
-        </div>
-
-        <!-- Day Selector Tabs -->
-        <div class="day-selector-card card">
           <div class="days-nav" id="days-nav">
-            <button class="day-chip active" data-day="Monday">Mon</button>
+            <button class="day-chip" data-day="Monday">Mon</button>
             <button class="day-chip" data-day="Tuesday">Tue</button>
             <button class="day-chip" data-day="Wednesday">Wed</button>
             <button class="day-chip" data-day="Thursday">Thu</button>
@@ -550,77 +506,68 @@
             <button class="day-chip" data-day="Saturday">Sat</button>
             <button class="day-chip" data-day="Sunday">Sun</button>
           </div>
-          <div class="day-header-summary">
-            <h3 id="current-selected-day-title">Monday Schedule</h3>
-            <span class="day-slot-count" id="day-slot-count">0 Sessions Planned</span>
-          </div>
+          <button id="add-timetable-slot-btn" class="btn btn-primary toolbar-action">
+            <i class="fa-solid fa-plus"></i> <span>Add slot</span>
+          </button>
         </div>
 
-        <!-- Schedule Slots List -->
-        <div class="timetable-container">
-          <div class="schedule-timeline" id="timetable-slots-list">
-            <!-- Dynamically populated timetable items -->
+        <div id="timetable-day-view">
+          <div class="day-header-summary">
+            <h3 id="current-selected-day-title">Monday</h3>
+            <span class="card-hint" id="day-slot-count">0 sessions</span>
           </div>
 
-          <!-- Empty State for Day -->
+          <div class="schedule-timeline" id="timetable-slots-list"></div>
+
           <div class="empty-state hidden" id="timetable-empty-state">
-            <div class="empty-icon"><i class="fa-solid fa-calendar-xmark"></i></div>
-            <h3>No study slots for this day</h3>
-            <p>Plan your focus blocks to stay ahead in your coursework.</p>
-            <button class="btn btn-primary mt-3" id="empty-state-add-slot-btn">
-              <i class="fa-solid fa-plus"></i> Add First Slot
+            <div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div>
+            <h3>No sessions on this day</h3>
+            <p>Plan lectures, labs and self-study blocks — they repeat every week.</p>
+            <button class="btn btn-primary" id="empty-state-add-slot-btn">
+              <i class="fa-solid fa-plus"></i> Add a session
             </button>
           </div>
         </div>
+
+        <div class="week-grid hidden" id="timetable-week-view"></div>
       </section>
 
-      <!-- TAB 4: NOTES SECTION -->
+      <!-- ================================================================
+           TAB: NOTES
+           ================================================================ -->
       <section class="tab-pane" id="tab-notes">
-        <div class="section-header">
-          <div>
-            <h2>Study Notes & Ideas</h2>
-            <p class="subtitle">Quickly capture lecture takeaways, exam tips, and revision summaries.</p>
-          </div>
-          <button id="add-note-btn" class="btn btn-primary">
-            <i class="fa-solid fa-plus"></i> New Note
-          </button>
-        </div>
-
-        <!-- Search and Subject Filter for Notes -->
-        <div class="filter-toolbar card">
+        <div class="toolbar">
           <div class="search-input-wrapper">
             <i class="fa-solid fa-magnifying-glass search-icon"></i>
-            <input type="text" id="note-search-input" placeholder="Search notes by title or content..." class="form-input">
+            <input type="search" id="note-search-input" placeholder="Search notes…" class="form-input" aria-label="Search notes">
           </div>
-          <div class="filter-groups">
-            <div class="filter-select-wrapper">
-              <label for="note-filter-subject" class="filter-label">Filter Subject:</label>
-              <select id="note-filter-subject" class="form-select">
-                <option value="all">All Subjects</option>
-              </select>
-            </div>
+          <div class="toolbar-selects">
+            <select id="note-filter-subject" class="form-select form-select-sm" aria-label="Filter notes by subject">
+              <option value="all">All subjects</option>
+            </select>
           </div>
+          <button id="add-note-btn" class="btn btn-primary toolbar-action">
+            <i class="fa-solid fa-plus"></i> <span>New note</span>
+          </button>
         </div>
 
-        <!-- Notes Grid -->
-        <div class="notes-grid" id="notes-grid">
-          <!-- Dynamically populated note cards -->
-        </div>
+        <div id="notes-grid"></div>
 
-        <!-- Empty State for Notes -->
         <div class="empty-state hidden" id="notes-empty-state">
-          <div class="empty-icon"><i class="fa-solid fa-book"></i></div>
-          <h3>No study notes yet</h3>
-          <p>Organize formulas, key concepts, and summaries here.</p>
-          <button class="btn btn-primary mt-3" id="empty-state-add-note-btn">
-            <i class="fa-solid fa-plus"></i> Create Note
+          <div class="empty-icon"><i class="fa-regular fa-note-sticky"></i></div>
+          <h3 id="notes-empty-title">No notes yet</h3>
+          <p id="notes-empty-text">Capture formulas, definitions and lecture takeaways here.</p>
+          <button class="btn btn-primary" id="empty-state-add-note-btn">
+            <i class="fa-solid fa-plus"></i> Create note
           </button>
         </div>
       </section>
 
-      <!-- TAB: PRIVATE JOURNAL -->
+      <!-- ================================================================
+           TAB: PRIVATE JOURNAL
+           ================================================================ -->
       <section class="tab-pane" id="tab-journal">
-        <!-- LOCKED STATE: shown every time the journal is opened -->
+        <!-- LOCKED STATE -->
         <div class="journal-lock card" id="journal-lock">
           <div class="journal-lock-inner">
             <div class="journal-lock-icon">
@@ -647,7 +594,6 @@
                 <i class="fa-solid fa-key"></i> Forgot your password?
               </button>
 
-              <!-- Security question: created with the journal, asked again on a password reset -->
               <div class="journal-question-block hidden" id="journal-question-block">
                 <div id="journal-question-pick">
                   <div class="form-group">
@@ -718,18 +664,16 @@
 
         <!-- UNLOCKED STATE -->
         <div class="hidden" id="journal-view">
-          <div class="section-header">
-            <div>
-              <h2>My Journal</h2>
-              <p class="subtitle">One page a day for your life — encrypted, private, and backed up.</p>
+          <div class="toolbar journal-toolbar">
+            <div class="journal-badges">
+              <span class="badge badge-warning" id="journal-streak-badge"><i class="fa-solid fa-fire"></i> 0 day streak</span>
+              <span class="badge badge-accent" id="journal-sync-badge" title="Encrypted journal is stored in your account"><i class="fa-solid fa-cloud-arrow-up"></i> Backed up</span>
             </div>
-            <div class="journal-toolbar">
-              <span class="badge badge-success" id="journal-streak-badge"><i class="fa-solid fa-fire"></i> 0 day streak</span>
-              <span class="badge badge-primary" id="journal-sync-badge" title="Encrypted journal is stored in your account"><i class="fa-solid fa-cloud-arrow-up"></i> Backed up</span>
+            <div class="journal-actions">
               <button id="journal-restore-btn" class="btn btn-sm btn-ghost" title="Restore the journal from a downloaded backup file">
                 <i class="fa-solid fa-file-import"></i> Restore
               </button>
-              <button id="journal-export-btn" class="btn btn-sm btn-outline" title="Download an encrypted copy to keep in Google Drive">
+              <button id="journal-export-btn" class="btn btn-sm btn-ghost" title="Download an encrypted copy to keep in Google Drive">
                 <i class="fa-solid fa-download"></i> Backup file
               </button>
               <button id="journal-set-question-btn" class="btn btn-sm btn-ghost hidden" title="Pick a question that can reset a forgotten password">
@@ -745,23 +689,20 @@
           </div>
 
           <div class="journal-layout">
-            <!-- Past entries -->
             <aside class="card journal-list-card">
               <div class="journal-list-header">
                 <div class="search-input-wrapper">
                   <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                  <input type="text" id="journal-search-input" class="form-input" placeholder="Search your memories...">
+                  <input type="text" id="journal-search-input" class="form-input" placeholder="Search your memories…">
                 </div>
-                <button id="journal-today-btn" class="btn btn-sm btn-primary">
+                <button id="journal-today-btn" class="btn btn-sm btn-soft">
                   <i class="fa-solid fa-pen-nib"></i> Today
                 </button>
               </div>
 
-              <div class="journal-entries-list" id="journal-entries-list">
-                <!-- Dynamically injected past entries -->
-              </div>
+              <div class="journal-entries-list" id="journal-entries-list"></div>
 
-              <div class="empty-state journal-list-empty hidden" id="journal-list-empty-state">
+              <div class="empty-state empty-state-sm journal-list-empty hidden" id="journal-list-empty-state">
                 <div class="empty-icon"><i class="fa-solid fa-feather-pointed"></i></div>
                 <h3 id="journal-empty-title">Your story starts today</h3>
                 <p id="journal-empty-text">Write your first entry — even two sentences count as showing up for yourself.</p>
@@ -769,11 +710,10 @@
 
               <div class="journal-list-footer">
                 <span id="journal-count-label">0 entries</span>
-                <span class="text-muted"><i class="fa-solid fa-lock"></i> Encrypted</span>
+                <span><i class="fa-solid fa-lock"></i> Encrypted</span>
               </div>
             </aside>
 
-            <!-- Editor -->
             <div class="card journal-editor-card">
               <div class="journal-editor-header">
                 <div class="journal-date-nav">
@@ -782,15 +722,15 @@
                   </button>
                   <div class="journal-date-block">
                     <h3 id="journal-entry-date">Today</h3>
-                    <span class="text-sm text-muted" id="journal-entry-relative">—</span>
+                    <span id="journal-entry-relative">—</span>
                   </div>
                   <button class="icon-btn" id="journal-next-day-btn" aria-label="Next day">
                     <i class="fa-solid fa-chevron-right"></i>
                   </button>
                   <input type="date" id="journal-date-picker" class="form-input journal-date-picker" aria-label="Jump to a date" title="Jump to a date">
                 </div>
-                <button class="btn-icon-action delete" id="journal-delete-btn" title="Delete this entry">
-                  <i class="fa-solid fa-trash-can"></i>
+                <button class="icon-btn icon-btn-danger" id="journal-delete-btn" title="Delete this entry" aria-label="Delete this entry">
+                  <i class="fa-regular fa-trash-can"></i>
                 </button>
               </div>
 
@@ -806,14 +746,14 @@
               </div>
 
               <div class="journal-prompt">
-                <i class="fa-regular fa-lightbulb text-primary"></i>
+                <i class="fa-regular fa-lightbulb"></i>
                 <span id="journal-prompt-text">What made today feel like yours?</span>
                 <button type="button" class="btn btn-sm btn-ghost" id="journal-prompt-refresh-btn">Another</button>
               </div>
 
-              <input type="text" id="journal-title-input" class="form-input journal-title-input" placeholder="Give this day a title…" maxlength="120">
+              <input type="text" id="journal-title-input" class="journal-title-input" placeholder="Give this day a title…" maxlength="120">
 
-              <textarea id="journal-body-input" class="form-textarea journal-body-input" rows="12" placeholder="What happened today? What are you carrying? What would you tell tomorrow-you about this day?"></textarea>
+              <textarea id="journal-body-input" class="journal-body-input" rows="12" placeholder="What happened today? What are you carrying? What would you tell tomorrow-you about this day?"></textarea>
 
               <div class="journal-editor-footer">
                 <span class="journal-editor-stats">
@@ -829,694 +769,819 @@
         </div>
       </section>
 
-      <!-- TAB 5: PROGRESS TRACKER & FOCUS TIMER -->
+      <!-- ================================================================
+           TAB: FOCUS & PROGRESS
+           ================================================================ -->
       <section class="tab-pane" id="tab-progress">
-        <div class="section-header">
-          <div>
-            <h2>Academic Progress & Focus Hub</h2>
-            <p class="subtitle">Evaluate your study productivity, task completion rates, and run focused study sprints.</p>
-          </div>
-        </div>
-
         <div class="progress-layout-grid">
-          <!-- Left Column: Pomodoro Focus Timer -->
-          <div class="card timer-card">
-            <div class="card-header">
-              <div class="card-title-group">
-                <i class="fa-solid fa-stopwatch text-primary"></i>
-                <h2>Pomodoro Focus Timer</h2>
-              </div>
-              <span class="badge badge-sky" id="pomodoro-sessions-counter">0 Sessions Today</span>
+          <div class="card timer-card" id="timer-card" data-mode="pomodoro">
+            <div class="timer-modes segmented" role="tablist" aria-label="Timer mode">
+              <button class="segmented-btn mode-btn active" data-mode="pomodoro">Focus</button>
+              <button class="segmented-btn mode-btn" data-mode="shortBreak">Short break</button>
+              <button class="segmented-btn mode-btn" data-mode="longBreak">Long break</button>
             </div>
-            <div class="card-body timer-body">
-              <!-- Mode Selection -->
-              <div class="timer-modes">
-                <button class="mode-btn active" data-mode="pomodoro">Study (25m)</button>
-                <button class="mode-btn" data-mode="shortBreak">Short Break (5m)</button>
-                <button class="mode-btn" data-mode="longBreak">Long Break (15m)</button>
-              </div>
 
-              <!-- Big Circular Timer Display -->
-              <div class="timer-clock-wrapper">
-                <svg class="timer-svg" viewBox="0 0 200 200">
-                  <circle class="timer-circle-bg" cx="100" cy="100" r="90" />
-                  <circle class="timer-circle-progress" id="timer-progress-circle" cx="100" cy="100" r="90" />
-                </svg>
-                <div class="timer-center-content">
-                  <span class="timer-display-digits" id="timer-display">25:00</span>
-                  <span class="timer-status-label" id="timer-status-text">Ready to focus</span>
-                </div>
+            <div class="timer-clock-wrapper">
+              <svg class="timer-svg" viewBox="0 0 200 200" aria-hidden="true">
+                <circle class="timer-circle-bg" cx="100" cy="100" r="90" />
+                <circle class="timer-circle-progress" id="timer-progress-circle" cx="100" cy="100" r="90" />
+              </svg>
+              <div class="timer-center-content">
+                <span class="timer-display-digits" id="timer-display">25:00</span>
+                <span class="timer-status-label" id="timer-status-text">Ready to focus</span>
               </div>
+            </div>
 
-              <!-- Controls -->
-              <div class="timer-main-controls">
-                <button id="timer-toggle-btn" class="btn btn-lg btn-primary">
-                  <i class="fa-solid fa-play"></i> Start Session
-                </button>
-                <button id="timer-reset-btn" class="btn btn-lg btn-outline" title="Reset Timer">
-                  <i class="fa-solid fa-rotate-left"></i>
-                </button>
-                <button id="timer-skip-btn" class="btn btn-lg btn-ghost" title="Skip to next">
-                  <i class="fa-solid fa-forward-step"></i>
-                </button>
-              </div>
+            <div class="timer-cycle" id="timer-cycle-dots" title="Every 4th focus session earns a long break"></div>
 
-              <!-- Focus Tips -->
-              <div class="timer-tip">
-                <i class="fa-regular fa-lightbulb"></i>
-                <span>Tip: Work in distraction-free 25-minute sprints with 5-minute pauses to preserve high retention.</span>
-              </div>
+            <div class="timer-task-row">
+              <label for="timer-task-select" class="form-label">Working on</label>
+              <select id="timer-task-select" class="form-select form-select-sm">
+                <option value="">Just focusing</option>
+              </select>
+            </div>
+
+            <div class="timer-main-controls">
+              <button id="timer-reset-btn" class="icon-btn icon-btn-lg" title="Reset timer" aria-label="Reset timer">
+                <i class="fa-solid fa-rotate-left"></i>
+              </button>
+              <button id="timer-toggle-btn" class="btn btn-lg btn-primary timer-toggle">
+                <i class="fa-solid fa-play"></i> Start
+              </button>
+              <button id="timer-skip-btn" class="icon-btn icon-btn-lg" title="Skip to next" aria-label="Skip to next">
+                <i class="fa-solid fa-forward-step"></i>
+              </button>
+            </div>
+
+            <div class="timer-footer">
+              <span class="badge badge-accent" id="pomodoro-sessions-counter">0 sessions logged</span>
+              <button class="btn btn-sm btn-ghost" id="timer-settings-btn"><i class="fa-solid fa-sliders"></i> Timer settings</button>
             </div>
           </div>
 
-          <!-- Right Column: Analytics & Progress Metrics -->
           <div class="progress-metrics-column">
-            <!-- Overall Task Mastery -->
             <div class="card">
               <div class="card-header">
                 <div class="card-title-group">
-                  <i class="fa-solid fa-list-check text-blue"></i>
-                  <h2>Assignment Completion</h2>
+                  <h3>Focus this week</h3>
+                  <span class="card-hint" id="focus-week-total">0m</span>
                 </div>
-                <span class="badge badge-primary" id="completion-percentage-badge">0%</span>
+                <span class="badge badge-violet" id="focus-goal-badge">Goal 60m / day</span>
               </div>
               <div class="card-body">
-                <div class="progress-bar-container">
-                  <div class="progress-bar-fill bg-gradient-blue" id="progress-assignments-bar" style="width: 0%"></div>
-                </div>
-                <div class="stats-two-col mt-3">
-                  <div class="stat-box">
-                    <span class="stat-num text-primary" id="prog-completed-tasks">0</span>
-                    <span class="stat-desc">Assignments Done</span>
-                  </div>
-                  <div class="stat-box">
-                    <span class="stat-num text-muted" id="prog-pending-tasks">0</span>
-                    <span class="stat-desc">Remaining</span>
-                  </div>
-                </div>
+                <div class="week-chart week-chart-lg" id="focus-week-chart"></div>
               </div>
             </div>
 
-            <!-- Subject Breakdown -->
             <div class="card">
               <div class="card-header">
                 <div class="card-title-group">
-                  <i class="fa-solid fa-chart-pie text-emerald"></i>
-                  <h2>Assignments by Subject</h2>
-                </div>
-              </div>
-              <div class="card-body">
-                <div class="subject-breakdown-list" id="subject-breakdown-list">
-                  <!-- Dynamically populated subject bars -->
-                </div>
-              </div>
-            </div>
-
-            <!-- Study Streak & Productivity Summary -->
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title-group">
-                  <i class="fa-solid fa-medal text-amber"></i>
-                  <h2>Weekly Study Habits</h2>
+                  <h3>Study streak</h3>
                 </div>
               </div>
               <div class="card-body">
                 <div class="streak-banner">
-                  <div class="streak-icon">
-                    <i class="fa-solid fa-fire text-amber"></i>
-                  </div>
+                  <div class="streak-icon"><i class="fa-solid fa-fire"></i></div>
                   <div class="streak-details">
                     <h4 id="streak-banner-title">No study streak yet</h4>
-                    <p class="text-sm text-muted" id="streak-banner-text">Complete an assignment or log a focus session to start your streak.</p>
+                    <p id="streak-banner-text">Complete an assignment or log a focus session to start your streak.</p>
                   </div>
                 </div>
-                
-                <div class="weekly-streak-days" id="weekly-streak-days">
-                  <!-- Dynamically populated from real activity -->
+                <div class="weekly-streak-days" id="weekly-streak-days"></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title-group">
+                  <h3>Assignment completion</h3>
                 </div>
+                <span class="badge badge-accent" id="completion-percentage-badge">0%</span>
+              </div>
+              <div class="card-body">
+                <div class="progress-track progress-track-lg"><span class="progress-fill" id="progress-assignments-bar" style="width: 0%"></span></div>
+                <div class="stats-two-col">
+                  <div class="stat-box">
+                    <span class="stat-num" id="prog-completed-tasks">0</span>
+                    <span class="stat-desc">Done</span>
+                  </div>
+                  <div class="stat-box">
+                    <span class="stat-num" id="prog-pending-tasks">0</span>
+                    <span class="stat-desc">Remaining</span>
+                  </div>
+                </div>
+                <div class="subject-breakdown-list" id="subject-breakdown-list"></div>
               </div>
             </div>
           </div>
         </div>
       </section>
-      <!-- TAB: MARKS & GRADES -->
+
+      <!-- ================================================================
+           TAB: MARKS & GRADES
+           ================================================================ -->
       <section class="tab-pane" id="tab-marks">
-        <div class="section-header">
-          <div>
-            <h2>Marks &amp; Grades</h2>
-            <p class="subtitle">Record your test and exam scores to track your average and see where to focus.</p>
+        <div class="marks-summary">
+          <div class="stat-tile stat-tile-static">
+            <span class="stat-tile-icon tone-accent"><i class="fa-solid fa-percent"></i></span>
+            <span class="stat-tile-body">
+              <span class="stat-tile-value" id="marks-overall-percent">—</span>
+              <span class="stat-tile-label">Overall average</span>
+            </span>
           </div>
-          <button id="add-mark-btn" class="btn btn-primary">
-            <i class="fa-solid fa-plus"></i> Record Mark
+          <div class="stat-tile stat-tile-static">
+            <span class="stat-tile-icon tone-violet"><i class="fa-solid fa-graduation-cap"></i></span>
+            <span class="stat-tile-body">
+              <span class="stat-tile-value" id="marks-overall-grade">—</span>
+              <span class="stat-tile-label">Overall grade</span>
+            </span>
+          </div>
+          <div class="stat-tile stat-tile-static">
+            <span class="stat-tile-icon tone-success"><i class="fa-solid fa-file-pen"></i></span>
+            <span class="stat-tile-body">
+              <span class="stat-tile-value" id="marks-count">0</span>
+              <span class="stat-tile-label">Marks recorded</span>
+            </span>
+          </div>
+          <div class="stat-tile stat-tile-static">
+            <span class="stat-tile-icon tone-warning"><i class="fa-solid fa-trophy"></i></span>
+            <span class="stat-tile-body">
+              <span class="stat-tile-value stat-tile-value-text" id="marks-best-subject">—</span>
+              <span class="stat-tile-label">Strongest subject</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="marks-insights">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>Average by subject</h3>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="marks-subject-list" id="marks-subject-list"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>Recent trend</h3>
+                <span class="card-hint" id="marks-trend-hint">Last 10 results</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="trend-chart" id="marks-trend-chart"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-input-wrapper">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="search" id="mark-search-input" placeholder="Search marks…" class="form-input" aria-label="Search marks">
+          </div>
+          <div class="toolbar-selects">
+            <select id="mark-filter-subject" class="form-select form-select-sm" aria-label="Filter marks by subject">
+              <option value="all">All subjects</option>
+            </select>
+            <select id="mark-sort-select" class="form-select form-select-sm" aria-label="Sort marks">
+              <option value="recent">Most recent</option>
+              <option value="oldest">Oldest first</option>
+              <option value="highest">Highest score</option>
+              <option value="lowest">Lowest score</option>
+            </select>
+          </div>
+          <button id="add-mark-btn" class="btn btn-primary toolbar-action">
+            <i class="fa-solid fa-plus"></i> <span>Record mark</span>
           </button>
         </div>
 
-        <!-- Summary Metrics -->
-        <div class="marks-summary">
-          <div class="card marks-stat-card">
-            <div class="marks-stat-icon bg-blue-subtle text-primary">
-              <i class="fa-solid fa-percent"></i>
-            </div>
-            <div class="marks-stat-body">
-              <span class="marks-stat-value" id="marks-overall-percent">—</span>
-              <span class="marks-stat-label">Overall Average</span>
-            </div>
-          </div>
+        <div class="marks-list" id="marks-list"></div>
 
-          <div class="card marks-stat-card">
-            <div class="marks-stat-icon bg-purple-subtle text-purple">
-              <i class="fa-solid fa-graduation-cap"></i>
-            </div>
-            <div class="marks-stat-body">
-              <span class="marks-stat-value" id="marks-overall-grade">—</span>
-              <span class="marks-stat-label">Overall Grade</span>
-            </div>
-          </div>
-
-          <div class="card marks-stat-card">
-            <div class="marks-stat-icon bg-emerald-subtle text-emerald">
-              <i class="fa-solid fa-file-pen"></i>
-            </div>
-            <div class="marks-stat-body">
-              <span class="marks-stat-value" id="marks-count">0</span>
-              <span class="marks-stat-label">Tests Recorded</span>
-            </div>
-          </div>
-
-          <div class="card marks-stat-card">
-            <div class="marks-stat-icon bg-amber-subtle text-amber">
-              <i class="fa-solid fa-trophy"></i>
-            </div>
-            <div class="marks-stat-body">
-              <span class="marks-stat-value" id="marks-best-subject">—</span>
-              <span class="marks-stat-label">Strongest Subject</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Subject Averages -->
-        <div class="card marks-breakdown-card">
-          <div class="card-header">
-            <div class="card-title-group">
-              <i class="fa-solid fa-chart-simple text-primary"></i>
-              <h2>Average by Subject</h2>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="marks-subject-list" id="marks-subject-list">
-              <!-- Dynamically populated subject averages -->
-            </div>
-          </div>
-        </div>
-
-        <!-- Filters -->
-        <div class="filter-toolbar card">
-          <div class="search-input-wrapper">
-            <i class="fa-solid fa-magnifying-glass search-icon"></i>
-            <input type="text" id="mark-search-input" placeholder="Search by test title or subject..." class="form-input">
-          </div>
-          <div class="filter-groups">
-            <div class="filter-select-wrapper">
-              <label for="mark-filter-subject" class="filter-label">Filter Subject:</label>
-              <select id="mark-filter-subject" class="form-select">
-                <option value="all">All Subjects</option>
-              </select>
-            </div>
-            <div class="filter-select-wrapper">
-              <label for="mark-sort-select" class="filter-label">Sort By:</label>
-              <select id="mark-sort-select" class="form-select">
-                <option value="recent">Most Recent</option>
-                <option value="oldest">Oldest First</option>
-                <option value="highest">Highest Score</option>
-                <option value="lowest">Lowest Score</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- Marks List -->
-        <div class="marks-list" id="marks-list">
-          <!-- Dynamically populated mark cards -->
-        </div>
-
-        <!-- Empty State -->
         <div class="empty-state hidden" id="marks-empty-state">
           <div class="empty-icon"><i class="fa-solid fa-award"></i></div>
           <h3>No marks recorded yet</h3>
-          <p>Add your first test or exam score to start tracking your grades.</p>
-          <button class="btn btn-primary mt-3" id="empty-state-add-mark-btn">
-            <i class="fa-solid fa-plus"></i> Record Mark
+          <p>Add a test or exam score to start tracking your average.</p>
+          <button class="btn btn-primary" id="empty-state-add-mark-btn">
+            <i class="fa-solid fa-plus"></i> Record mark
           </button>
         </div>
       </section>
+
+      </div><!-- /.content -->
     </main>
+
+    <!-- Mobile bottom navigation -->
+    <nav class="bottom-nav" aria-label="Quick navigation">
+      <button class="bnav-item active" data-tab="dashboard"><i class="fa-solid fa-house"></i><span>Today</span></button>
+      <button class="bnav-item" data-tab="assignments"><i class="fa-solid fa-list-check"></i><span>Tasks</span></button>
+      <button class="bnav-add" id="bnav-add-btn" aria-label="Add new item"><i class="fa-solid fa-plus"></i></button>
+      <button class="bnav-item" data-tab="calendar"><i class="fa-regular fa-calendar"></i><span>Calendar</span></button>
+      <button class="bnav-item" id="bnav-more-btn" data-more><i class="fa-solid fa-bars"></i><span>More</span></button>
+    </nav>
   </div>
 
-  <!-- MODAL: ADD / EDIT ASSIGNMENT -->
+  <!-- Quick-add menu (anchored to the "New" button, a bottom sheet on phones) -->
+  <div class="menu" id="quick-add-menu" role="menu" aria-label="Create new">
+    <button class="menu-item" role="menuitem" data-create="task"><i class="fa-solid fa-list-check"></i><span>Assignment</span><kbd class="kbd">A</kbd></button>
+    <button class="menu-item" role="menuitem" data-create="event"><i class="fa-regular fa-calendar-plus"></i><span>Event or test</span><kbd class="kbd">E</kbd></button>
+    <button class="menu-item" role="menuitem" data-create="slot"><i class="fa-solid fa-table-cells"></i><span>Timetable slot</span><kbd class="kbd">S</kbd></button>
+    <button class="menu-item" role="menuitem" data-create="note"><i class="fa-regular fa-note-sticky"></i><span>Note</span><kbd class="kbd">N</kbd></button>
+    <button class="menu-item" role="menuitem" data-create="mark"><i class="fa-solid fa-award"></i><span>Mark</span><kbd class="kbd">M</kbd></button>
+  </div>
+
+  <!-- Command palette -->
+  <div class="palette-backdrop" id="palette" aria-hidden="true">
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Search and commands">
+      <div class="palette-input-row">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="palette-input" placeholder="Search assignments, notes, events… or type a command" autocomplete="off" spellcheck="false">
+        <kbd class="kbd">Esc</kbd>
+      </div>
+      <div class="palette-results" id="palette-results" role="listbox"></div>
+      <div class="palette-footer">
+        <span><kbd class="kbd">↑</kbd><kbd class="kbd">↓</kbd> to move</span>
+        <span><kbd class="kbd">Enter</kbd> to open</span>
+        <span class="palette-footer-hint"><kbd class="kbd">?</kbd> shortcuts</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       MODALS
+       ===================================================================== -->
+
+  <!-- ADD / EDIT ASSIGNMENT -->
   <div class="modal-backdrop" id="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 id="task-modal-title">Add New Assignment</h3>
-        <button class="modal-close-btn" id="close-task-modal-btn" aria-label="Close modal">&times;</button>
+        <h3 id="task-modal-title">New assignment</h3>
+        <button class="icon-btn modal-close-btn" id="close-task-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form id="task-form">
-        <input type="hidden" id="task-id">
-        <div class="form-group">
-          <label for="task-title-input" class="form-label">Assignment Title *</label>
-          <input type="text" id="task-title-input" class="form-input" placeholder="e.g. Calculus Chapter 4 Problem Set" required>
-        </div>
-
-        <div class="form-row">
+        <div class="modal-body">
+          <input type="hidden" id="task-id">
           <div class="form-group">
-            <label for="task-subject-input" class="form-label">Subject *</label>
-            <input type="text" id="task-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Mathematics" required>
-            <datalist id="subject-suggestions">
-              <option value="Mathematics">
-              <option value="Physics">
-              <option value="Computer Science">
-              <option value="Chemistry">
-              <option value="Biology">
-              <option value="History">
-              <option value="Literature">
-              <option value="Economics">
-            </datalist>
+            <label for="task-title-input" class="form-label">Title *</label>
+            <input type="text" id="task-title-input" class="form-input form-input-lg" placeholder="e.g. Calculus chapter 4 problem set" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="task-subject-input" class="form-label">Subject *</label>
+              <input type="text" id="task-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Mathematics" required>
+              <datalist id="subject-suggestions">
+                <option value="Mathematics">
+                <option value="Physics">
+                <option value="Computer Science">
+                <option value="Chemistry">
+                <option value="Biology">
+                <option value="History">
+                <option value="Literature">
+                <option value="Economics">
+              </datalist>
+            </div>
+            <div class="form-group">
+              <label for="task-due-date-input" class="form-label">Due date *</label>
+              <input type="date" id="task-due-date-input" class="form-input" required>
+              <div class="date-shortcuts" data-target="task-due-date-input">
+                <button type="button" data-offset="0">Today</button>
+                <button type="button" data-offset="1">Tomorrow</button>
+                <button type="button" data-offset="7">Next week</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <span class="form-label">Priority</span>
+              <div class="choice-group" role="radiogroup" aria-label="Priority">
+                <label class="choice choice-high"><input type="radio" name="task-priority" value="high"><span><i class="fa-solid fa-flag"></i> High</span></label>
+                <label class="choice choice-medium"><input type="radio" name="task-priority" value="medium" checked><span><i class="fa-solid fa-flag"></i> Medium</span></label>
+                <label class="choice choice-low"><input type="radio" name="task-priority" value="low"><span><i class="fa-regular fa-flag"></i> Low</span></label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="task-estimated-time-input" class="form-label">Estimated time (min)</label>
+              <input type="number" id="task-estimated-time-input" class="form-input" min="5" step="5" placeholder="e.g. 60" value="45">
+            </div>
           </div>
 
           <div class="form-group">
-            <label for="task-priority-input" class="form-label">Priority</label>
-            <select id="task-priority-input" class="form-select">
-              <option value="high">High (Urgent)</option>
-              <option value="medium" selected>Medium</option>
-              <option value="low">Low</option>
-            </select>
+            <label for="task-description-input" class="form-label">Notes &amp; instructions</label>
+            <textarea id="task-description-input" class="form-textarea" rows="3" placeholder="Requirements, textbook pages, submission details…"></textarea>
           </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="task-due-date-input" class="form-label">Due Date *</label>
-            <input type="date" id="task-due-date-input" class="form-input" required>
-          </div>
-
-          <div class="form-group">
-            <label for="task-estimated-time-input" class="form-label">Est. Time (minutes)</label>
-            <input type="number" id="task-estimated-time-input" class="form-input" min="5" step="5" placeholder="e.g. 60" value="45">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="task-description-input" class="form-label">Notes & Instructions (Optional)</label>
-          <textarea id="task-description-input" class="form-textarea" rows="3" placeholder="Add specific requirements, textbook pages, or submission instructions..."></textarea>
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" id="cancel-task-btn">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="save-task-btn">Save Assignment</button>
+          <button type="button" class="btn btn-ghost" id="cancel-task-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-task-btn">Save assignment</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- MODAL: ADD / EDIT TIMETABLE SLOT -->
+  <!-- ADD / EDIT TIMETABLE SLOT -->
   <div class="modal-backdrop" id="timetable-modal" role="dialog" aria-modal="true" aria-labelledby="timetable-modal-title">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 id="timetable-modal-title">Add Study Slot</h3>
-        <button class="modal-close-btn" id="close-timetable-modal-btn" aria-label="Close modal">&times;</button>
+        <h3 id="timetable-modal-title">Add study slot</h3>
+        <button class="icon-btn modal-close-btn" id="close-timetable-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form id="timetable-form">
-        <input type="hidden" id="slot-id">
-        <div class="form-group">
-          <label for="slot-day-select" class="form-label">Day of Week *</label>
-          <select id="slot-day-select" class="form-select" required>
-            <option value="Monday">Monday</option>
-            <option value="Tuesday">Tuesday</option>
-            <option value="Wednesday">Wednesday</option>
-            <option value="Thursday">Thursday</option>
-            <option value="Friday">Friday</option>
-            <option value="Saturday">Saturday</option>
-            <option value="Sunday">Sunday</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="slot-title-input" class="form-label">Session Topic / Activity *</label>
-          <input type="text" id="slot-title-input" class="form-input" placeholder="e.g. Algorithms & Data Structures Lecture" required>
-        </div>
-
-        <div class="form-row">
+        <div class="modal-body">
+          <input type="hidden" id="slot-id">
           <div class="form-group">
-            <label for="slot-subject-input" class="form-label">Subject *</label>
-            <input type="text" id="slot-subject-input" class="form-input" placeholder="e.g. Computer Science" required>
+            <label for="slot-title-input" class="form-label">Session / activity *</label>
+            <input type="text" id="slot-title-input" class="form-input form-input-lg" placeholder="e.g. Algorithms lecture" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="slot-subject-input" class="form-label">Subject *</label>
+              <input type="text" id="slot-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Computer Science" required>
+            </div>
+            <div class="form-group">
+              <label for="slot-type-select" class="form-label">Type</label>
+              <select id="slot-type-select" class="form-select">
+                <option value="Lecture">Lecture / Class</option>
+                <option value="Self Study">Self study</option>
+                <option value="Revision">Exam revision</option>
+                <option value="Lab">Lab / Practical</option>
+                <option value="Group Study">Group study</option>
+              </select>
+            </div>
           </div>
 
           <div class="form-group">
-            <label for="slot-type-select" class="form-label">Activity Type</label>
-            <select id="slot-type-select" class="form-select">
-              <option value="Lecture">Lecture / Class</option>
-              <option value="Self Study">Self Study</option>
-              <option value="Revision">Exam Revision</option>
-              <option value="Lab">Lab / Practical</option>
-              <option value="Group Study">Group Study</option>
+            <label for="slot-day-select" class="form-label">Day of week *</label>
+            <select id="slot-day-select" class="form-select" required>
+              <option value="Monday">Monday</option>
+              <option value="Tuesday">Tuesday</option>
+              <option value="Wednesday">Wednesday</option>
+              <option value="Thursday">Thursday</option>
+              <option value="Friday">Friday</option>
+              <option value="Saturday">Saturday</option>
+              <option value="Sunday">Sunday</option>
             </select>
           </div>
-        </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label for="slot-start-time" class="form-label">Start Time *</label>
-            <input type="time" id="slot-start-time" class="form-input" required>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="slot-start-time" class="form-label">Starts *</label>
+              <input type="time" id="slot-start-time" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label for="slot-end-time" class="form-label">Ends *</label>
+              <input type="time" id="slot-end-time" class="form-input" required>
+            </div>
           </div>
 
           <div class="form-group">
-            <label for="slot-end-time" class="form-label">End Time *</label>
-            <input type="time" id="slot-end-time" class="form-input" required>
+            <label for="slot-location-input" class="form-label">Location / room / link</label>
+            <input type="text" id="slot-location-input" class="form-input" placeholder="e.g. Hall B302, Zoom link, Library">
           </div>
-        </div>
-
-        <div class="form-group">
-          <label for="slot-location-input" class="form-label">Location / Room / Platform</label>
-          <input type="text" id="slot-location-input" class="form-input" placeholder="e.g. Hall B302 / Zoom link / Library">
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" id="cancel-timetable-btn">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="save-timetable-btn">Save Study Slot</button>
+          <button type="button" class="btn btn-ghost" id="cancel-timetable-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-timetable-btn">Save slot</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- MODAL: ADD / EDIT NOTE -->
+  <!-- ADD / EDIT NOTE -->
   <div class="modal-backdrop" id="note-modal" role="dialog" aria-modal="true" aria-labelledby="note-modal-title">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-lg">
       <div class="modal-header">
-        <h3 id="note-modal-title">New Study Note</h3>
-        <button class="modal-close-btn" id="close-note-modal-btn" aria-label="Close modal">&times;</button>
+        <h3 id="note-modal-title">New note</h3>
+        <button class="icon-btn modal-close-btn" id="close-note-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form id="note-form">
-        <input type="hidden" id="note-id">
-        <div class="form-group">
-          <label for="note-title-input" class="form-label">Note Title *</label>
-          <input type="text" id="note-title-input" class="form-input" placeholder="e.g. Key Thermodynamics Formulas" required>
-        </div>
-
-        <div class="form-row">
+        <div class="modal-body">
+          <input type="hidden" id="note-id">
           <div class="form-group">
-            <label for="note-subject-input" class="form-label">Subject *</label>
-            <input type="text" id="note-subject-input" class="form-input" placeholder="e.g. Physics" required>
+            <label for="note-title-input" class="form-label">Title *</label>
+            <input type="text" id="note-title-input" class="form-input form-input-lg" placeholder="e.g. Key thermodynamics formulas" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="note-subject-input" class="form-label">Subject *</label>
+              <input type="text" id="note-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Physics" required>
+            </div>
+            <div class="form-group">
+              <span class="form-label">Colour</span>
+              <div class="swatch-group" role="radiogroup" aria-label="Note colour">
+                <label class="swatch" style="--sw: var(--note-sky)"><input type="radio" name="note-color" value="sky" checked><span title="Blue"></span></label>
+                <label class="swatch" style="--sw: var(--note-emerald)"><input type="radio" name="note-color" value="emerald"><span title="Green"></span></label>
+                <label class="swatch" style="--sw: var(--note-purple)"><input type="radio" name="note-color" value="purple"><span title="Violet"></span></label>
+                <label class="swatch" style="--sw: var(--note-amber)"><input type="radio" name="note-color" value="amber"><span title="Amber"></span></label>
+                <label class="swatch" style="--sw: var(--note-rose)"><input type="radio" name="note-color" value="rose"><span title="Rose"></span></label>
+              </div>
+            </div>
           </div>
 
           <div class="form-group">
-            <label for="note-color-select" class="form-label">Card Accent Color</label>
-            <select id="note-color-select" class="form-select">
-              <option value="sky">Ocean Blue</option>
-              <option value="emerald">Emerald Mint</option>
-              <option value="purple">Soft Violet</option>
-              <option value="amber">Warm Amber</option>
-              <option value="rose">Coral Rose</option>
-            </select>
+            <label for="note-content-input" class="form-label">Content *</label>
+            <textarea id="note-content-input" class="form-textarea" rows="9" placeholder="Definitions, formulas, summaries…" required></textarea>
+            <p class="form-hint"><i class="fa-solid fa-wand-magic-sparkles"></i> Formatting: <code>- item</code> for bullets, <code>**bold**</code>, <code>`code`</code>, <code># Heading</code>.</p>
           </div>
-        </div>
 
-        <div class="form-group">
-          <label for="note-content-input" class="form-label">Note Content *</label>
-          <textarea id="note-content-input" class="form-textarea" rows="7" placeholder="Write your revision notes, formula derivations, key definitions, or lecture takeaways here..." required></textarea>
+          <label class="toggle-row">
+            <input type="checkbox" id="note-pinned-input">
+            <span class="toggle"></span>
+            <span>Pin to the top of your notes</span>
+          </label>
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" id="cancel-note-btn">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="save-note-btn">Save Note</button>
+          <button type="button" class="btn btn-ghost" id="cancel-note-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-note-btn">Save note</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- MODAL: ADD / EDIT CALENDAR EVENT -->
+  <!-- ADD / EDIT CALENDAR EVENT -->
   <div class="modal-backdrop" id="event-modal" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 id="event-modal-title">New Event</h3>
-        <button class="modal-close-btn" id="close-event-modal-btn" aria-label="Close modal">&times;</button>
+        <h3 id="event-modal-title">New event</h3>
+        <button class="icon-btn modal-close-btn" id="close-event-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form id="event-form">
-        <input type="hidden" id="event-id">
+        <div class="modal-body">
+          <input type="hidden" id="event-id">
 
-        <div class="form-group">
-          <label for="event-title-input" class="form-label">Event Title *</label>
-          <input type="text" id="event-title-input" class="form-input" placeholder="e.g. Calculus Midterm Exam" required>
-        </div>
-
-        <div class="form-row">
           <div class="form-group">
-            <label for="event-type-select" class="form-label">Event Type</label>
-            <select id="event-type-select" class="form-select">
-              <option value="test">Test / Exam</option>
-              <option value="class">Class / Lecture</option>
-              <option value="study">Study Session</option>
-              <option value="event" selected>Other Event</option>
-            </select>
+            <label for="event-title-input" class="form-label">Title *</label>
+            <input type="text" id="event-title-input" class="form-input form-input-lg" placeholder="e.g. Calculus midterm exam" required>
           </div>
 
           <div class="form-group">
-            <label for="event-subject-input" class="form-label">Subject</label>
-            <input type="text" id="event-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Mathematics">
+            <span class="form-label">Type</span>
+            <div class="choice-group" role="radiogroup" aria-label="Event type">
+              <label class="choice choice-test"><input type="radio" name="event-type" value="test"><span><i class="fa-solid fa-file-pen"></i> Test / exam</span></label>
+              <label class="choice choice-class"><input type="radio" name="event-type" value="class"><span><i class="fa-solid fa-chalkboard-user"></i> Class</span></label>
+              <label class="choice choice-study"><input type="radio" name="event-type" value="study"><span><i class="fa-solid fa-book-open-reader"></i> Study</span></label>
+              <label class="choice choice-event"><input type="radio" name="event-type" value="event" checked><span><i class="fa-solid fa-star"></i> Other</span></label>
+            </div>
           </div>
-        </div>
 
-        <div class="form-group">
-          <label for="event-date-input" class="form-label">Date *</label>
-          <input type="date" id="event-date-input" class="form-input" required>
-        </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="event-date-input" class="form-label">Date *</label>
+              <input type="date" id="event-date-input" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label for="event-subject-input" class="form-label">Subject</label>
+              <input type="text" id="event-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Mathematics">
+            </div>
+          </div>
 
-        <div class="form-row">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="event-start-time" class="form-label">Starts *</label>
+              <input type="time" id="event-start-time" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label for="event-end-time" class="form-label">Ends *</label>
+              <input type="time" id="event-end-time" class="form-input" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="event-reminder-select" class="form-label">Reminder</label>
+              <select id="event-reminder-select" class="form-select">
+                <option value="0">No reminder</option>
+                <option value="10">10 minutes before</option>
+                <option value="30">30 minutes before</option>
+                <option value="60">1 hour before</option>
+                <option value="120">2 hours before</option>
+                <option value="1440">1 day before</option>
+                <option value="2880">2 days before</option>
+                <option value="10080">1 week before</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="event-location-input" class="form-label">Location / link</label>
+              <input type="text" id="event-location-input" class="form-input" placeholder="e.g. Hall B302">
+            </div>
+          </div>
+
           <div class="form-group">
-            <label for="event-start-time" class="form-label">Start Time *</label>
-            <input type="time" id="event-start-time" class="form-input" required>
+            <label for="event-notes-input" class="form-label">Notes</label>
+            <textarea id="event-notes-input" class="form-textarea" rows="3" placeholder="Syllabus covered, what to bring, revision topics…"></textarea>
           </div>
-
-          <div class="form-group">
-            <label for="event-end-time" class="form-label">End Time *</label>
-            <input type="time" id="event-end-time" class="form-input" required>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="event-reminder-select" class="form-label">Reminder</label>
-            <select id="event-reminder-select" class="form-select">
-              <option value="0">No reminder</option>
-              <option value="10">10 minutes before</option>
-              <option value="30">30 minutes before</option>
-              <option value="60">1 hour before</option>
-              <option value="120">2 hours before</option>
-              <option value="1440">1 day before</option>
-              <option value="2880">2 days before</option>
-              <option value="10080">1 week before</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="event-location-input" class="form-label">Location / Room / Link</label>
-            <input type="text" id="event-location-input" class="form-input" placeholder="e.g. Hall B302 / Zoom link">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="event-notes-input" class="form-label">Notes (Optional)</label>
-          <textarea id="event-notes-input" class="form-textarea" rows="3" placeholder="Syllabus covered, what to bring, revision topics..."></textarea>
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" id="cancel-event-btn">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="save-event-btn">Save Event</button>
+          <button type="button" class="btn btn-ghost btn-danger-text hidden" id="delete-event-in-modal-btn"><i class="fa-regular fa-trash-can"></i> Delete</button>
+          <span class="modal-footer-spacer"></span>
+          <button type="button" class="btn btn-ghost" id="cancel-event-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-event-btn">Save event</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- MODAL: ADD / EDIT TEST MARK -->
+  <!-- ADD / EDIT MARK -->
   <div class="modal-backdrop" id="mark-modal" role="dialog" aria-modal="true" aria-labelledby="mark-modal-title">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 id="mark-modal-title">Record a Mark</h3>
-        <button class="modal-close-btn" id="close-mark-modal-btn" aria-label="Close modal">&times;</button>
+        <h3 id="mark-modal-title">Record a mark</h3>
+        <button class="icon-btn modal-close-btn" id="close-mark-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form id="mark-form">
-        <input type="hidden" id="mark-id">
+        <div class="modal-body">
+          <input type="hidden" id="mark-id">
 
-        <div class="form-group">
-          <label for="mark-title-input" class="form-label">Test / Exam Title *</label>
-          <input type="text" id="mark-title-input" class="form-input" placeholder="e.g. Calculus Midterm Exam" required>
-        </div>
-
-        <div class="form-row">
           <div class="form-group">
-            <label for="mark-subject-input" class="form-label">Subject *</label>
-            <input type="text" id="mark-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Mathematics" required>
+            <label for="mark-title-input" class="form-label">Test / exam title *</label>
+            <input type="text" id="mark-title-input" class="form-input form-input-lg" placeholder="e.g. Calculus midterm" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="mark-subject-input" class="form-label">Subject *</label>
+              <input type="text" id="mark-subject-input" class="form-input" list="subject-suggestions" placeholder="e.g. Mathematics" required>
+            </div>
+            <div class="form-group">
+              <label for="mark-date-input" class="form-label">Date *</label>
+              <input type="date" id="mark-date-input" class="form-input" required>
+            </div>
+          </div>
+
+          <div class="form-row form-row-score">
+            <div class="form-group">
+              <label for="mark-score-input" class="form-label">Score *</label>
+              <input type="number" id="mark-score-input" class="form-input" step="0.01" min="0" placeholder="42" required>
+            </div>
+            <span class="score-divider">/</span>
+            <div class="form-group">
+              <label for="mark-max-input" class="form-label">Out of *</label>
+              <input type="number" id="mark-max-input" class="form-input" step="0.01" min="0.01" placeholder="50" required>
+            </div>
+          </div>
+
+          <p class="form-hint" id="mark-percent-preview">
+            <i class="fa-solid fa-calculator"></i> Enter a score to see the percentage.
+          </p>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="mark-type-select" class="form-label">Assessment type</label>
+              <select id="mark-type-select" class="form-select">
+                <option value="test" selected>Test</option>
+                <option value="exam">Exam</option>
+                <option value="quiz">Quiz</option>
+                <option value="assignment">Assignment</option>
+                <option value="project">Project</option>
+                <option value="oral">Oral / Presentation</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="mark-weight-input" class="form-label">Weight (%)</label>
+              <input type="number" id="mark-weight-input" class="form-input" step="1" min="0" max="100" placeholder="Optional">
+            </div>
           </div>
 
           <div class="form-group">
-            <label for="mark-date-input" class="form-label">Date *</label>
-            <input type="date" id="mark-date-input" class="form-input" required>
+            <label for="mark-notes-input" class="form-label">Notes</label>
+            <textarea id="mark-notes-input" class="form-textarea" rows="2" placeholder="Topics to revise, teacher feedback…"></textarea>
           </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="mark-score-input" class="form-label">Score Obtained *</label>
-            <input type="number" id="mark-score-input" class="form-input" step="0.01" min="0" placeholder="e.g. 42" required>
-          </div>
-
-          <div class="form-group">
-            <label for="mark-max-input" class="form-label">Out of (Maximum) *</label>
-            <input type="number" id="mark-max-input" class="form-input" step="0.01" min="0.01" placeholder="e.g. 50" required>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="mark-type-select" class="form-label">Assessment Type</label>
-            <select id="mark-type-select" class="form-select">
-              <option value="test" selected>Test</option>
-              <option value="exam">Exam</option>
-              <option value="quiz">Quiz</option>
-              <option value="assignment">Assignment</option>
-              <option value="project">Project</option>
-              <option value="oral">Oral / Presentation</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="mark-weight-input" class="form-label">Weight (%)</label>
-            <input type="number" id="mark-weight-input" class="form-input" step="1" min="0" max="100" placeholder="Optional, e.g. 20">
-          </div>
-        </div>
-
-        <p class="form-hint" id="mark-percent-preview">
-          <i class="fa-solid fa-calculator"></i> Enter a score to see the percentage.
-        </p>
-
-        <div class="form-group">
-          <label for="mark-notes-input" class="form-label">Notes (Optional)</label>
-          <textarea id="mark-notes-input" class="form-textarea" rows="2" placeholder="Topics to revise, teacher feedback..."></textarea>
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" id="cancel-mark-btn">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="save-mark-btn">Save Mark</button>
+          <button type="button" class="btn btn-ghost" id="cancel-mark-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-mark-btn">Save mark</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- MODAL: CHANGE JOURNAL PASSWORD -->
+  <!-- SETTINGS -->
+  <div class="modal-backdrop" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="modal-dialog modal-dialog-lg">
+      <div class="modal-header">
+        <h3 id="settings-modal-title">Settings</h3>
+        <button class="icon-btn modal-close-btn" id="close-settings-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form id="settings-form">
+        <div class="modal-body">
+          <fieldset class="settings-section">
+            <legend>Focus timer</legend>
+            <div class="form-row form-row-3">
+              <div class="form-group">
+                <label for="set-focus-min" class="form-label">Focus (min)</label>
+                <input type="number" id="set-focus-min" class="form-input" min="5" max="120" step="1" required>
+              </div>
+              <div class="form-group">
+                <label for="set-short-min" class="form-label">Short break</label>
+                <input type="number" id="set-short-min" class="form-input" min="1" max="30" step="1" required>
+              </div>
+              <div class="form-group">
+                <label for="set-long-min" class="form-label">Long break</label>
+                <input type="number" id="set-long-min" class="form-input" min="5" max="60" step="1" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="set-focus-goal" class="form-label">Daily focus goal (minutes)</label>
+              <input type="number" id="set-focus-goal" class="form-input" min="10" max="600" step="5" required>
+            </div>
+            <label class="toggle-row">
+              <input type="checkbox" id="set-autostart">
+              <span class="toggle"></span>
+              <span>Start the next session automatically</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-section">
+            <legend>Feedback</legend>
+            <label class="toggle-row">
+              <input type="checkbox" id="set-sounds">
+              <span class="toggle"></span>
+              <span>Play sounds when you finish something</span>
+            </label>
+            <label class="toggle-row">
+              <input type="checkbox" id="set-confetti">
+              <span class="toggle"></span>
+              <span>Celebrate completions with confetti</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-section">
+            <legend>Your data</legend>
+            <p class="form-hint">Download everything as a JSON file, or restore from one. Journal pages stay encrypted inside the file.</p>
+            <div class="settings-actions">
+              <button type="button" class="btn btn-outline" id="export-data-btn"><i class="fa-solid fa-download"></i> Export workspace</button>
+              <button type="button" class="btn btn-outline" id="import-data-btn"><i class="fa-solid fa-upload"></i> Import from file</button>
+            </div>
+          </fieldset>
+
+          <fieldset class="settings-section settings-danger">
+            <legend>Danger zone</legend>
+            <div class="settings-danger-row">
+              <p>Permanently delete every assignment, slot, note, event, mark, focus stat and your journal.</p>
+              <button type="button" class="btn btn-danger" id="clear-all-data-btn"><i class="fa-solid fa-broom"></i> Clear all data</button>
+            </div>
+          </fieldset>
+        </div>
+
+        <div class="modal-footer">
+          <span class="modal-footer-note" id="settings-build"></span>
+          <span class="modal-footer-spacer"></span>
+          <button type="button" class="btn btn-ghost" id="cancel-settings-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- KEYBOARD SHORTCUTS -->
+  <div class="modal-backdrop" id="shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="shortcuts-modal-title">Keyboard shortcuts</h3>
+        <button class="icon-btn modal-close-btn" data-close-modal aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <dl class="shortcut-list">
+          <div><dt><kbd class="kbd" data-shortcut-label>Ctrl K</kbd></dt><dd>Search &amp; commands</dd></div>
+          <div><dt><kbd class="kbd">/</kbd></dt><dd>Search</dd></div>
+          <div><dt><kbd class="kbd">A</kbd></dt><dd>New assignment</dd></div>
+          <div><dt><kbd class="kbd">E</kbd></dt><dd>New event</dd></div>
+          <div><dt><kbd class="kbd">N</kbd></dt><dd>New note</dd></div>
+          <div><dt><kbd class="kbd">M</kbd></dt><dd>Record a mark</dd></div>
+          <div><dt><kbd class="kbd">S</kbd></dt><dd>New timetable slot</dd></div>
+          <div><dt><kbd class="kbd">F</kbd></dt><dd>Start / pause focus timer</dd></div>
+          <div><dt><kbd class="kbd">1</kbd>–<kbd class="kbd">8</kbd></dt><dd>Jump to a section</dd></div>
+          <div><dt><kbd class="kbd">T</kbd></dt><dd>Toggle dark mode</dd></div>
+          <div><dt><kbd class="kbd">?</kbd></dt><dd>Show this list</dd></div>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIRM DIALOG -->
+  <div class="modal-backdrop" id="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-text">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-body confirm-body">
+        <span class="confirm-icon" id="confirm-modal-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
+        <h3 id="confirm-modal-title">Are you sure?</h3>
+        <p id="confirm-modal-text"></p>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-footer-spacer"></span>
+        <button type="button" class="btn btn-ghost" id="confirm-modal-cancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirm-modal-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHANGE JOURNAL PASSWORD -->
   <div class="modal-backdrop" id="journal-password-modal" role="dialog" aria-modal="true" aria-labelledby="journal-password-modal-title">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 id="journal-password-modal-title">Change Journal Password</h3>
-        <button class="modal-close-btn" id="close-journal-password-modal-btn" aria-label="Close modal">&times;</button>
+        <h3 id="journal-password-modal-title">Change journal password</h3>
+        <button class="icon-btn modal-close-btn" id="close-journal-password-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form id="journal-password-form">
-        <div class="form-group">
-          <label for="journal-current-password" class="form-label">Current password *</label>
-          <input type="password" id="journal-current-password" class="form-input" autocomplete="current-password" required minlength="6">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="journal-current-password" class="form-label">Current password *</label>
+            <input type="password" id="journal-current-password" class="form-input" autocomplete="current-password" required minlength="6">
+          </div>
+          <div class="form-group">
+            <label for="journal-new-password" class="form-label">New password *</label>
+            <input type="password" id="journal-new-password" class="form-input" placeholder="At least 6 characters" autocomplete="new-password" required minlength="6">
+          </div>
+          <div class="form-group">
+            <label for="journal-new-password-confirm" class="form-label">Confirm new password *</label>
+            <input type="password" id="journal-new-password-confirm" class="form-input" placeholder="Repeat the new password" autocomplete="new-password" required minlength="6">
+          </div>
+          <p class="form-hint">
+            <i class="fa-solid fa-shield-halved"></i> Your entries are re-encrypted with the new password.
+            Backups made with the old password will stop working — download a fresh one afterwards.
+          </p>
+          <p class="journal-lock-error hidden" id="journal-password-modal-error"></p>
         </div>
-
-        <div class="form-group">
-          <label for="journal-new-password" class="form-label">New password *</label>
-          <input type="password" id="journal-new-password" class="form-input" placeholder="At least 6 characters" autocomplete="new-password" required minlength="6">
-        </div>
-
-        <div class="form-group">
-          <label for="journal-new-password-confirm" class="form-label">Confirm new password *</label>
-          <input type="password" id="journal-new-password-confirm" class="form-input" placeholder="Repeat the new password" autocomplete="new-password" required minlength="6">
-        </div>
-
-        <p class="form-hint">
-          <i class="fa-solid fa-shield-halved"></i> Your entries are re-encrypted with the new password.
-          Backups made with the old password will stop working — download a fresh one afterwards.
-        </p>
-
-        <p class="journal-lock-error hidden" id="journal-password-modal-error"></p>
-
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" id="cancel-journal-password-btn">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="save-journal-password-btn">Update Password</button>
+          <button type="button" class="btn btn-ghost" id="cancel-journal-password-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-journal-password-btn">Update password</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- MODAL: SET / CHANGE THE JOURNAL RECOVERY QUESTION -->
+  <!-- SET / CHANGE THE JOURNAL RECOVERY QUESTION -->
   <div class="modal-backdrop" id="journal-question-modal" role="dialog" aria-modal="true" aria-labelledby="journal-question-modal-title">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 id="journal-question-modal-title">Journal Recovery Question</h3>
-        <button class="modal-close-btn" id="close-journal-question-modal-btn" aria-label="Close modal">&times;</button>
+        <h3 id="journal-question-modal-title">Journal recovery question</h3>
+        <button class="icon-btn modal-close-btn" id="close-journal-question-modal-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form id="journal-question-form">
-        <p class="form-hint">
-          <i class="fa-solid fa-shield-halved"></i> This is the only way back into your journal if you forget
-          your password — nobody can reset it for you. Pick an answer nobody else would guess.
-        </p>
-
-        <div class="form-group">
-          <label for="jq-question-select" class="form-label">Security question *</label>
-          <select id="jq-question-select" class="form-select">
-            <option value="">Choose a question…</option>
-            <option>What city were you born in?</option>
-            <option>What was the name of your first pet?</option>
-            <option>What is your mother's maiden name?</option>
-            <option>What was your childhood nickname?</option>
-            <option>What street did you grow up on?</option>
-            <option>What school did you attend in 6th grade?</option>
-            <option value="__custom">Write my own question…</option>
-          </select>
-          <input type="text" id="jq-question-custom" class="form-input journal-question-custom hidden" placeholder="Type your own question…" maxlength="140">
+        <div class="modal-body">
+          <p class="form-hint">
+            <i class="fa-solid fa-shield-halved"></i> This is the only way back into your journal if you forget
+            your password — nobody can reset it for you. Pick an answer nobody else would guess.
+          </p>
+          <div class="form-group">
+            <label for="jq-question-select" class="form-label">Security question *</label>
+            <select id="jq-question-select" class="form-select">
+              <option value="">Choose a question…</option>
+              <option>What city were you born in?</option>
+              <option>What was the name of your first pet?</option>
+              <option>What is your mother's maiden name?</option>
+              <option>What was your childhood nickname?</option>
+              <option>What street did you grow up on?</option>
+              <option>What school did you attend in 6th grade?</option>
+              <option value="__custom">Write my own question…</option>
+            </select>
+            <input type="text" id="jq-question-custom" class="form-input journal-question-custom hidden" placeholder="Type your own question…" maxlength="140">
+          </div>
+          <div class="form-group">
+            <label for="jq-answer" class="form-label">Answer *</label>
+            <input type="password" id="jq-answer" class="form-input" placeholder="An answer only you would know" autocomplete="off" minlength="3">
+          </div>
+          <div class="form-group">
+            <label for="jq-answer-confirm" class="form-label">Confirm answer *</label>
+            <input type="password" id="jq-answer-confirm" class="form-input" placeholder="Repeat your answer" autocomplete="off" minlength="3">
+          </div>
+          <p class="journal-question-hint">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            Anyone who knows this answer can unlock your journal — keep it to yourself.
+          </p>
+          <p class="journal-lock-error hidden" id="jq-error"></p>
         </div>
-
-        <div class="form-group">
-          <label for="jq-answer" class="form-label">Answer *</label>
-          <input type="password" id="jq-answer" class="form-input" placeholder="An answer only you would know" autocomplete="off" minlength="3">
-        </div>
-
-        <div class="form-group">
-          <label for="jq-answer-confirm" class="form-label">Confirm answer *</label>
-          <input type="password" id="jq-answer-confirm" class="form-input" placeholder="Repeat your answer" autocomplete="off" minlength="3">
-        </div>
-
-        <p class="journal-question-hint">
-          <i class="fa-solid fa-triangle-exclamation"></i>
-          Anyone who knows this answer can unlock your journal — keep it to yourself.
-        </p>
-
-        <p class="journal-lock-error hidden" id="jq-error"></p>
-
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" id="cancel-journal-question-btn">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="save-journal-question-btn">Save Question</button>
+          <button type="button" class="btn btn-ghost" id="cancel-journal-question-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-journal-question-btn">Save question</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Hidden picker used to restore the journal from a downloaded backup file -->
+  <!-- Hidden file pickers -->
   <input type="file" id="journal-backup-file-input" accept=".json,application/json" class="hidden">
+  <input type="file" id="import-data-file" accept=".json,application/json" class="hidden">
 
-  <!-- Toast Notification Container -->
-  <div class="toast-container" id="toast-container"></div>
-
-  <!-- Celebration Confetti Container -->
+  <!-- Toasts & celebration -->
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
   <canvas id="confetti-canvas"></canvas>
 
   <!-- Supabase (Auth + Cloud Database) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!-- Project Credentials (edit this file with your Supabase URL + anon key) -->
+  <!-- Project credentials -->
   <script src="config.js"></script>
 
-  <!-- Main Application -->
+  <!-- Main application -->
   <script src="app.js"></script>
 </body>
 </html>

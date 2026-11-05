@@ -6,60 +6,53 @@ A modern, responsive, and beginner-friendly web application built for students t
 
 ## 🌟 Key Features
 
-1. **📊 Interactive Dashboard**
-   - Quick overview metrics: Pending Assignments, Completed Tasks, Today's Study Sessions, and Total Focused Time.
-   - Daily inspirational quotes to keep motivation high.
-   - Immediate access to upcoming priorities and today's schedule preview.
-   - Weekly assignment goal completion progress bar.
+1. **🏠 Today (Dashboard)**
+   - A greeting with a one-line summary of your day ("1 assignment due today, 1 overdue… your next test is in 3 days").
+   - **Next up** card with a live countdown to whatever is happening now or next — an event, a timetable session or your most urgent deadline.
+   - Today's plan: one timeline that merges timetable sessions, events and assignments due today, each tickable in place.
+   - Due-soon list, overdue alert, focus-today vs. your daily goal, day streak, and a Mon–Sun focus chart.
 
-2. **✅ Assignments To-Do List**
-   - Create, edit, and delete coursework and homework assignments.
-   - Due date badges with automatic overdue tracking.
-   - Priority levels: High (Urgent), Medium, and Low.
-   - Real-time search by title, subject, or description.
-   - Filters for status (Pending/Completed), priority, and subject.
-   - Celebratory confetti animation and audio chimes on task completion.
-   - Bulk action to clear completed tasks.
+2. **✅ Assignments**
+   - Grouped by when they're due: Overdue, Due today, Tomorrow, Next 7 days, Later, Completed.
+   - Quick-add row (type a title, press Enter), priority pills, date shortcuts (Today / Tomorrow / Next week).
+   - To do / Done / All filter with counts, priority + subject filters, and sorting by due date, priority or recently added.
+   - ▶ "Focus on this" starts a Pomodoro linked to the assignment and tracks minutes focused on it.
+   - Completing, deleting or clearing shows an **Undo** toast instead of a blocking confirmation.
 
 3. **📅 Calendar & Events with Reminders**
-   - Month-view calendar with colour-coded events and a per-day agenda.
-   - Plan anything: **Tests/Exams**, Classes, Study Sessions, or other events.
-   - Each event records a date, start time and end time, plus subject, location and notes.
-   - Optional reminders (10m, 30m, 1h, 2h, 1 day, 2 days, 1 week before).
-   - **Live countdowns on the dashboard** ("Starts in 2h 15m") that update automatically.
-   - Optional desktop notifications when an event is about to begin.
-   - Click any day in the calendar to see and manage that day's agenda.
+   - Month view showing events **and assignment deadlines**, colour-coded by type; per-day agenda beside it.
+   - Tests/exams, classes, study sessions or other events with date, times, subject, location and notes.
+   - Reminders (10m → 1 week before) now fire when the reminder window opens, once per event, with optional desktop notifications.
+   - Double-click a day to add an event on it; delete from the agenda or the edit dialog.
 
-4. **📆 Daily Study Timetable**
-   - Weekday navigation (Monday through Sunday).
-   - Time slots with automatic duration calculations (e.g., `1h 30m`).
-   - Categorization by session type: *Lecture*, *Self Study*, *Exam Revision*, *Lab*, or *Group Study*.
-   - Location/room or online meeting link recording.
-   - One-click attendance/completion tracking.
+4. **🗓️ Weekly Timetable**
+   - Opens on **today**, marks the session happening now, and shows total planned time per day.
+   - Day view and a 7-column **Week view**; duplicate a slot to another day in one click.
+   - "Done" is tracked per week, so recurring sessions reset every Monday (older ticked slots are migrated automatically).
 
-4. **📝 Notes & Ideas Repository**
-   - Quick capture for lecture takeaways, formula sheets, and exam tips.
-   - Color-coded cards: Ocean Blue, Emerald Mint, Soft Violet, Warm Amber, Coral Rose.
-   - Searchable and filterable by subject.
-   - Formatted text support.
+5. **📝 Notes**
+   - Masonry grid with colour swatches, **pinning**, and light formatting: `- bullets`, `**bold**`, `` `code` ``, `# headings`.
+   - Search and subject filter; click any card to edit.
 
-5. **🎓 Marks & Grades Tracker**
-   - Record every test, exam, quiz, assignment, project and oral score.
-   - Automatic percentage and letter grade (A+ through F) per entry.
-   - Overall average — weighted by assessment weight when you provide one, otherwise a simple average.
-   - Per-subject average breakdown with colour-coded progress bars and a "strongest subject" highlight.
-   - Optional weight (%) per assessment, plus notes for feedback and revision targets.
-   - Search, filter by subject, and sort by date or score.
+6. **🎓 Marks & Grades**
+   - Percentages, letter grades (A+ → F), weighted overall average, strongest subject.
+   - Per-subject averages and a **trend chart** of your last 10 results.
 
-6. **⏱️ Progress Tracker & Pomodoro Focus Hub**
-   - Built-in Pomodoro Timer (25m Focus, 5m Short Break, 15m Long Break).
-   - Animated SVG circular progress indicator.
-   - Automatic focus time accumulator and session count logger.
-   - Synchronized mini-timer widget in the sidebar.
-   - Academic mastery breakdown by subject.
-   - 7-day study habit streak tracker.
+7. **⏱️ Focus & Progress**
+   - Pomodoro timer that stays accurate in background tabs, shows the countdown in the browser tab title, and earns a long break every 4th session.
+   - Custom focus/break lengths, daily focus goal and optional auto-start (Settings).
+   - Weekly focus chart, study streak, assignment completion by subject. A mini timer stays in the sidebar.
 
-7. **🔐 Private Journal (Password-Protected)**
+8. **⌨️ Fast navigation**
+   - **Command palette** (`Ctrl/⌘ + K` or `/`): search assignments, events, notes, marks and timetable slots, or run commands.
+   - "+ New" menu everywhere, and single-key shortcuts: `A` assignment, `E` event, `N` note, `M` mark, `S` slot, `F` focus, `T` theme, `1–8` sections, `?` help.
+
+9. **⚙️ Settings & your data**
+   - Timer lengths, daily goal, sounds and confetti on/off.
+   - **Export** the whole workspace to JSON and **import** it back (journal pages stay encrypted inside the file).
+   - "Clear all data" lives in a Danger zone inside Settings, behind a confirmation.
+
+10. **🔐 Private Journal (Password-Protected)**
    - A personal, everyday journal living right beside your study tools — one page per day.
    - Opening the Journal tab always asks for a **journal password** you create once, so it feels
    like stepping into a room only you have the key to. It re-locks itself the moment you leave
@@ -79,25 +72,17 @@ A modern, responsive, and beginner-friendly web application built for students t
    (works on any device you sign into), plus a one-click **Backup file** you can drop into Google
    Drive, and a **Restore** action that brings it back anywhere — password required.
 
-8. **☁️ Cloud Persistence (Supabase)**
+11. **☁️ Cloud Persistence (Supabase)**
    - Sign in with Google — every account gets its own private workspace.
    - New accounts start with a completely empty workspace — no sample content.
    - All tasks, timetable sessions, notes, events, marks and study metrics sync to your Supabase project and follow you across devices.
    - Every save also writes a **per-account device mirror** to your browser's local storage — if the cloud ever comes back empty on sign-in, the last saved workspace is restored from this device instead of showing a blank app. (Failed syncs are now surfaced with a toast instead of failing silently.)
    - Secured with Row Level Security: no user can ever read or edit another user's data.
-   - "Clear All Data" button in the sidebar footer to wipe your workspace anytime.
 
-9. **🌗 Light & Dark Theme**
-   - One-click theme toggle in the top bar (and on the login screen).
-   - Dark mode re-points the whole design-token palette — every surface, border, shadow and accent adapts, including the calendar, modals and toasts.
-   - Remembers your choice across sessions; follows your operating system preference until you pick one yourself.
-
-10. **📱 Fully Responsive & Clean Design**
-   - Light blue and crisp white palette (`#f0f9ff`, `#e0f2fe`, `#38bdf8`, `#0284c7`) with a matching dark counterpart.
-   - Rounded cards with smooth shadows and micro-animations.
-   - Mobile slide-out drawer navigation and desktop sidebar.
-   - Phone-tuned calendar: full-width month grid with ~50px day cells, events shown as colored dots (full details in the agenda below), and no horizontal scrolling from 360px up.
-   - 40px+ touch targets for primary buttons, modals that fit and scroll inside the screen, and a compact 2×2 dashboard metrics grid on small screens.
+12. **🎨 Design, themes & phones**
+   - Warm "paper & ink" look with Inter + Fraunces, consistent subject colours across every view.
+   - Light and dark themes (follows your OS until you choose), remembered across sessions.
+   - On phones: a bottom navigation bar with a central **+** button, dialogs that open as bottom sheets, a compact calendar with event dots, and no horizontal scrolling from 360px up.
 
 ---
 

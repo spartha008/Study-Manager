@@ -1,6 +1,7 @@
 /**
  * StudyBuddy - Modern Student Study Planner
- * Core Application Logic & Local Storage Management
+ * Core application logic: cloud sync, rendering, focus timer, command palette
+ * and the encrypted journal.
  */
 
 // =============================================================================
@@ -174,7 +175,14 @@ const MOTIVATIONAL_QUOTES = [
   { text: "You don't have to be great to start, but you have to start to be great.", author: "Zig Ziglar" },
   { text: "The expert in anything was once a beginner.", author: "Helen Hayes" },
   { text: "Focus on progress, not perfection.", author: "Bill Phillips" },
-  { text: "Small daily improvements over time lead to stunning results.", author: "Robin Sharma" }
+  { text: "Small daily improvements over time lead to stunning results.", author: "Robin Sharma" },
+  { text: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+  { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { text: "Learning never exhausts the mind.", author: "Leonardo da Vinci" },
+  { text: "Don't watch the clock; do what it does. Keep going.", author: "Sam Levenson" },
+  { text: "An investment in knowledge pays the best interest.", author: "Benjamin Franklin" },
+  { text: "Quality is not an act, it is a habit.", author: "Will Durant" },
+  { text: "You will never always be motivated, so you must learn to be disciplined.", author: "Unknown" }
 ];
 
 // =============================================================================
@@ -195,7 +203,7 @@ const supabaseClient = IS_CONFIGURED
 
 // Shown on the loading/login screens so it's always obvious which build is
 // actually running in the browser (rules out stale-cache confusion).
-const APP_BUILD = "build 2026-10-22a";
+const APP_BUILD = "build 2026-11-05a";
 
 /**
  * RemoteStore - reads/writes the signed-in user's single workspace row in
@@ -298,7 +306,7 @@ class ConfettiFX {
     canvas.height = window.innerHeight;
 
     const particles = [];
-    const colors = ["#38bdf8", "#0284c7", "#10b981", "#f59e0b", "#a855f7", "#f43f5e"];
+    const colors = ["#4655d4", "#8d97ff", "#1f8a5b", "#e8a540", "#7647d6", "#d24672", "#2585c4"];
 
     for (let i = 0; i < 65; i++) {
       particles.push({
@@ -353,16 +361,43 @@ class ConfettiFX {
 // =============================================================================
 // 4. Main Application Class
 // =============================================================================
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const TAB_ORDER = ["dashboard", "assignments", "calendar", "timetable", "notes", "marks", "progress", "journal"];
+const TAB_META = {
+  dashboard: { title: "Today", subtitle: null, icon: "fa-solid fa-house" },
+  assignments: { title: "Assignments", subtitle: "Coursework, homework and projects — grouped by when they're due", icon: "fa-solid fa-list-check" },
+  calendar: { title: "Calendar", subtitle: "Tests, classes and events, plus every assignment deadline", icon: "fa-regular fa-calendar" },
+  timetable: { title: "Timetable", subtitle: "Your weekly study rhythm — sessions repeat every week", icon: "fa-solid fa-table-cells" },
+  notes: { title: "Notes", subtitle: "Lecture takeaways, formulas and exam tips", icon: "fa-regular fa-note-sticky" },
+  marks: { title: "Marks & Grades", subtitle: "Scores, averages and where to focus next", icon: "fa-solid fa-award" },
+  progress: { title: "Focus & Progress", subtitle: "Pomodoro timer, focus history and study habits", icon: "fa-solid fa-stopwatch" },
+  journal: { title: "Journal", subtitle: "Private and encrypted — one page a day", icon: "fa-solid fa-feather-pointed" }
+};
+const DEFAULT_SETTINGS = {
+  focusMin: 25,
+  shortMin: 5,
+  longMin: 15,
+  focusGoal: 60,
+  autoStart: false,
+  sounds: true,
+  confetti: true
+};
+const DEFAULT_SUBJECTS = ["Mathematics", "Physics", "Computer Science", "Chemistry", "Biology", "History", "Literature", "Economics"];
+const IS_MAC = /Mac|iPhone|iPad|iPod/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || "");
+const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
+
 class StudyBuddyApp {
   constructor() {
-    // Workspace data — hydrated from the signed-in user's cloud profile in
-    // startSession(). First-time sign-ins get the sample data seeded below.
+    // Workspace data — hydrated from the signed-in user's cloud profile in startSession().
     this.user = null;
+    this.firstName = "";
     this.tasks = [];
     this.timetable = [];
     this.notes = [];
     this.events = [];
     this.marks = [];
+    this.settings = { ...DEFAULT_SETTINGS };
+    this.focusLog = {};               // { "YYYY-MM-DD": minutes focused that day }
 
     // Private journal. `journalEntries` only ever lives in memory and only
     // while unlocked; `journalBlob` is the encrypted, cloud-synced form of it.
@@ -386,11 +421,13 @@ class StudyBuddyApp {
     this.activeDates = [];
     this._persistTimer = null;
     this._reminderTick = null;
-    this._lastReminderKey = "";
     this._initialized = false;
+    this._flashTaskId = null;
+    this._lastSubject = "";
 
     this.currentTab = "dashboard";
-    this.selectedDay = "Monday";
+    this.selectedDay = this.todayName();
+    this.timetableView = "day";
 
     // Calendar state
     const now = new Date();
@@ -398,30 +435,35 @@ class StudyBuddyApp {
     this.calendarMonth = now.getMonth(); // 0-indexed
     this.selectedDate = this.toDateKey(now);
 
-    // Pomodoro Timer State
-    this.timerMode = "pomodoro"; // pomodoro (25), shortBreak (5), longBreak (15)
-    this.timerDurations = {
-      pomodoro: 25 * 60,
-      shortBreak: 5 * 60,
-      longBreak: 15 * 60
-    };
-    this.timeLeft = this.timerDurations.pomodoro;
+    // Pomodoro timer — runs off a wall-clock end time so it stays accurate
+    // even when the browser throttles background tabs.
+    this.timerMode = "pomodoro"; // pomodoro | shortBreak | longBreak
+    this.timeLeft = this.modeSeconds("pomodoro");
     this.timerInterval = null;
+    this.timerEndsAt = null;
     this.isTimerRunning = false;
+    this.timerTaskId = "";
+    this.cycleCount = 0;
 
-    // Filters & Search
+    // Filters & search
     this.taskSearch = "";
-    this.taskStatusFilter = "all";
+    this.taskStatusFilter = "pending";
     this.taskPriorityFilter = "all";
     this.taskSubjectFilter = "all";
+    this.taskSort = "due";
 
     this.noteSearch = "";
     this.noteSubjectFilter = "all";
 
-    // Marks & Grades state
     this.markSearch = "";
     this.markSubjectFilter = "all";
     this.markSort = "recent"; // recent | oldest | highest | lowest
+
+    // Command palette & dialogs
+    this.paletteItems = [];
+    this.paletteIndex = 0;
+    this._confirmResolve = null;
+    this._lastFocus = null;
 
     this.theme = "light";
 
@@ -432,9 +474,14 @@ class StudyBuddyApp {
     if (this._initialized) return;
     this._initialized = true;
 
-    this.setupDateDisplay();
     this.setupNavigation();
     this.setupModals();
+    this.setupConfirmDialog();
+    this.setupQuickAdd();
+    this.setupPalette();
+    this.setupShortcuts();
+    this.setupSettings();
+    this.setupDashboardEvents();
     this.setupTaskEvents();
     this.setupTimetableEvents();
     this.setupNoteEvents();
@@ -445,17 +492,18 @@ class StudyBuddyApp {
     this.setupQuotes();
     this.setupTheme();
     this.startReminderTicker();
+    this.updateShortcutLabels();
+    this.updatePageHeader();
 
-    // Initial Render
     this.renderAll();
   }
 
   // ===========================================================================
-  // 4. Session & Cloud Sync
+  // Session & Cloud Sync
   // ===========================================================================
   /**
-   * Called after Google sign-in: loads this user's workspace from Supabase
-   * (seeding the sample data on very first sign-in), then boots the UI.
+   * Called after Google sign-in: loads this user's workspace from Supabase,
+   * then boots the UI.
    */
   async startSession(session) {
     this.user = session.user;
@@ -474,9 +522,8 @@ class StudyBuddyApp {
       if (response && response.error) throw response.error;
       saved = (response && response.data && response.data.data) || null;
     } catch (e) {
-      // Don't silently degrade: entering the app with sample data could
-      // overwrite the real cloud workspace on the next save. Surface a clear,
-      // actionable error instead.
+      // Don't silently degrade: entering the app empty could overwrite the
+      // real cloud workspace on the next save. Surface an actionable error.
       console.error("[StudyBuddy] Failed to load cloud workspace:", e);
       const err = new Error(describeWorkspaceError(e));
       err.isAuthHtml = true;
@@ -488,7 +535,6 @@ class StudyBuddyApp {
 
       // One-time cleanup: accounts that signed up while the app still shipped
       // with sample data had that demo content saved into their workspace.
-      // Strip it so everyone starts (and stays) with their own real content.
       if (this.removeDemoContent()) this.persist();
 
       // Keep the device-level mirror in step with the known-good cloud copy.
@@ -504,7 +550,6 @@ class StudyBuddyApp {
         this.persist();
         this.showToast("Restored your last saved workspace from this device", "success");
       } else {
-        // First sign-in on this account: start with a clean, empty workspace.
         this.applyWorkspaceState({});
         this.persist();
       }
@@ -512,16 +557,12 @@ class StudyBuddyApp {
     AuthGate.showLoading("Starting StudyBuddy…");
     this.backfillActivityFromData();
     this.init();
-    // The constructor already ran init() (it's a no-op via the _initialized
-    // guard), so paint the loaded workspace explicitly — otherwise the app
-    // can come up still showing the empty state it booted with.
+    // The constructor already ran init() (a no-op via the _initialized guard),
+    // so paint the loaded workspace explicitly.
     this.renderAll();
   }
 
-  /**
-   * Removes any leftover sample/demo items from the current workspace.
-   * Returns true if anything was removed.
-   */
+  /** Removes any leftover sample/demo items. Returns true if anything was removed. */
   removeDemoContent() {
     const isDemo = item => item && DEMO_SEED_IDS.has(item.id);
     const tasks = this.tasks.filter(t => !isDemo(t));
@@ -540,24 +581,27 @@ class StudyBuddyApp {
     return removed;
   }
 
-  // Fill the sidebar/topbar with the signed-in Google profile.
+  // Fill the sidebar with the signed-in Google profile.
   renderUserProfile() {
     if (!this.user) return;
     const meta = this.user.user_metadata || {};
     const fullName = meta.full_name || meta.name || this.user.email || "Student";
-    const firstName = fullName.split(" ")[0];
+    this.firstName = String(fullName).split(/[\s@]/)[0];
     const avatarUrl = meta.avatar_url || meta.picture;
 
     const nameEl = document.getElementById("display-user-name");
     if (nameEl) nameEl.textContent = fullName;
 
-    const titleEl = document.getElementById("page-title");
-    if (titleEl) titleEl.textContent = `Welcome back, ${firstName}! 👋`;
-
     const avatarWrap = document.getElementById("sidebar-avatar");
-    if (avatarWrap && avatarUrl) {
-      avatarWrap.innerHTML = `<img src="${this.escapeHTML(avatarUrl)}" alt="${this.escapeHTML(fullName)}" referrerpolicy="no-referrer">`;
+    if (avatarWrap) {
+      if (avatarUrl) {
+        avatarWrap.innerHTML = `<img src="${this.escapeHTML(avatarUrl)}" alt="" referrerpolicy="no-referrer">`;
+      } else {
+        const initials = String(fullName).split(/\s+/).map(p => p[0] || "").join("").slice(0, 2).toUpperCase();
+        avatarWrap.textContent = initials || "S";
+      }
     }
+    this.renderDashboardHero();
   }
 
   // Debounced cloud sync — every mutation funnels through here.
@@ -578,15 +622,13 @@ class StudyBuddyApp {
 
     const res = await RemoteStore.save(this.user.id, state).catch(e => ({ error: e }));
     if (res && res.error) {
-      // supabase-js never throws for PostgREST failures — it resolves with
-      // `{ error }`. Ignoring that used to make failed saves completely
-      // silent, which is one way data "disappeared" between reloads.
+      // supabase-js resolves with `{ error }` instead of throwing — surface it.
       console.error("Cloud save failed:", res.error);
       this.showToast("Couldn't sync your latest changes to the cloud", "alert");
     }
   }
 
-  // The single JSON shape shared by the cloud row and the device mirror.
+  // The single JSON shape shared by the cloud row, the device mirror and exports.
   workspaceSnapshot() {
     return {
       tasks: this.tasks,
@@ -597,12 +639,14 @@ class StudyBuddyApp {
       journal: this.journalBlob,
       focusMinutes: this.focusMinutes,
       pomodoroSessions: this.pomodoroSessions,
-      activeDates: this.activeDates
+      activeDates: this.activeDates,
+      focusLog: this.focusLog,
+      settings: this.settings
     };
   }
 
-  // Applies a saved workspace object (cloud jsonb or device mirror) onto the
-  // in-memory state, defaulting anything missing to a clean value.
+  // Applies a saved workspace object (cloud jsonb, device mirror or import)
+  // onto the in-memory state, defaulting anything missing to a clean value.
   applyWorkspaceState(saved) {
     const s = (saved && typeof saved === "object" && !Array.isArray(saved)) ? saved : {};
     this.tasks = Array.isArray(s.tasks) ? s.tasks : [];
@@ -614,15 +658,17 @@ class StudyBuddyApp {
     this.focusMinutes = Number(s.focusMinutes) || 0;
     this.pomodoroSessions = Number(s.pomodoroSessions) || 0;
     this.activeDates = Array.isArray(s.activeDates) ? s.activeDates : [];
+    this.focusLog = (s.focusLog && typeof s.focusLog === "object" && !Array.isArray(s.focusLog)) ? { ...s.focusLog } : {};
+    const savedSettings = (s.settings && typeof s.settings === "object" && !Array.isArray(s.settings)) ? s.settings : {};
+    this.settings = { ...DEFAULT_SETTINGS, ...savedSettings };
+
+    this.timetable.forEach(slot => this.normalizeSlot(slot));
+    if (!this.isTimerRunning) this.timeLeft = this.modeSeconds(this.timerMode);
   }
 
   // ---------------------------------------------------------------------------
   // Device-level safety net: a per-account copy of the last state we tried to
-  // save, kept in localStorage. If a cloud load ever comes back empty while
-  // this browser has saved this account's data before, startSession() restores
-  // from here instead of wiping the workspace on screen.
-  // Keyed by user id so a different Google account on the same browser can
-  // never read another account's mirror.
+  // save, kept in localStorage and keyed by user id.
   // ---------------------------------------------------------------------------
   workspaceMirrorKey() {
     return `studybuddy-workspace-mirror:${this.user && this.user.id}`;
@@ -642,151 +688,112 @@ class StudyBuddyApp {
     try {
       const parsed = JSON.parse(localStorage.getItem(this.workspaceMirrorKey()) || "null");
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-      const looksLikeWorkspace = Array.isArray(parsed.tasks) || Array.isArray(parsed.timetable) ||
-        Array.isArray(parsed.notes) || Array.isArray(parsed.marks) || Boolean(parsed.journal);
-      return looksLikeWorkspace ? parsed : null;
+      return this.looksLikeWorkspace(parsed) ? parsed : null;
     } catch (e) {
       return null;
     }
   }
 
-  // Set Top Date String
-  setupDateDisplay() {
-    const dateEl = document.getElementById("current-date-display");
-    if (dateEl) {
-      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-      dateEl.textContent = new Date().toLocaleDateString('en-US', options);
-    }
+  looksLikeWorkspace(obj) {
+    return Boolean(obj) && typeof obj === "object" && (
+      Array.isArray(obj.tasks) || Array.isArray(obj.timetable) || Array.isArray(obj.notes) ||
+      Array.isArray(obj.events) || Array.isArray(obj.marks) || Boolean(obj.journal)
+    );
   }
 
-  // Setup Motivational Quotes
+  // Quote of the day — stable for the whole day instead of changing on every reload.
   setupQuotes() {
-    const quote = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
+    const start = new Date(new Date().getFullYear(), 0, 0);
+    const dayOfYear = Math.floor((Date.now() - start) / 86400000);
+    const quote = MOTIVATIONAL_QUOTES[dayOfYear % MOTIVATIONAL_QUOTES.length];
     const textEl = document.getElementById("quote-text");
     const authorEl = document.getElementById("quote-author");
     if (textEl && authorEl) {
-      textEl.textContent = `"${quote.text}"`;
+      textEl.textContent = `“${quote.text}”`;
       authorEl.textContent = `— ${quote.author}`;
     }
   }
 
-  // Navigation Logic
+  // ===========================================================================
+  // Navigation
+  // ===========================================================================
   setupNavigation() {
-    // Tab item buttons in sidebar
-    const navButtons = document.querySelectorAll(".nav-item");
-    navButtons.forEach(btn => {
-      btn.addEventListener("click", () => {
-        const tab = btn.dataset.tab;
-        this.switchTab(tab);
-      });
+    document.querySelectorAll(".nav-item").forEach(btn => {
+      btn.addEventListener("click", () => this.switchTab(btn.dataset.tab));
     });
 
-    // Delegated links with data-tab
+    // Any other element carrying data-tab (stat tiles, "View all" links, bottom nav).
     document.addEventListener("click", (e) => {
       const link = e.target.closest("[data-tab]");
-      if (link && !link.classList.contains("nav-item")) {
-        const tab = link.dataset.tab;
-        this.switchTab(tab);
-      }
+      if (link && !link.classList.contains("nav-item")) this.switchTab(link.dataset.tab);
     });
 
-    // Mobile Menu Controls
-    const mobileMenuBtn = document.getElementById("mobile-menu-btn");
+    // Mobile drawer
     const sidebar = document.getElementById("sidebar");
-    const closeSidebarBtn = document.getElementById("close-sidebar-btn");
-    const sidebarOverlay = document.getElementById("sidebar-overlay");
+    const overlay = document.getElementById("sidebar-overlay");
+    const openDrawer = () => {
+      this.closeQuickAdd();
+      sidebar?.classList.add("open");
+      overlay?.classList.add("active");
+    };
+    this.closeDrawer = () => {
+      sidebar?.classList.remove("open");
+      overlay?.classList.remove("active");
+    };
+    document.getElementById("mobile-menu-btn")?.addEventListener("click", openDrawer);
+    document.getElementById("bnav-more-btn")?.addEventListener("click", openDrawer);
+    document.getElementById("close-sidebar-btn")?.addEventListener("click", this.closeDrawer);
+    overlay?.addEventListener("click", this.closeDrawer);
 
-    if (mobileMenuBtn && sidebar && sidebarOverlay) {
-      mobileMenuBtn.addEventListener("click", () => {
-        sidebar.classList.add("open");
-        sidebarOverlay.classList.add("active");
+    // Search & settings entry points
+    document.getElementById("sidebar-search-btn")?.addEventListener("click", () => this.openPalette());
+    document.getElementById("open-palette-btn")?.addEventListener("click", () => this.openPalette());
+    document.getElementById("open-settings-btn")?.addEventListener("click", () => this.openSettings());
+
+    // Sign out
+    document.getElementById("sign-out-btn")?.addEventListener("click", async () => {
+      if (!supabaseClient) return;
+      const ok = await this.confirmDialog({
+        title: "Sign out of StudyBuddy?",
+        message: "Your data stays safe in your account — sign back in any time.",
+        confirmLabel: "Sign out",
+        tone: "info",
+        icon: "fa-arrow-right-from-bracket"
       });
-
-      const closeMenu = () => {
-        sidebar.classList.remove("open");
-        sidebarOverlay.classList.remove("active");
-      };
-
-      closeSidebarBtn?.addEventListener("click", closeMenu);
-      sidebarOverlay?.addEventListener("click", closeMenu);
-    }
-
-    // Clear All Data
-    const clearBtn = document.getElementById("clear-all-data-btn");
-    if (clearBtn) {
-      clearBtn.addEventListener("click", () => {
-        if (confirm("Clear your entire workspace? This permanently deletes all your assignments, study slots, notes, events, marks — and your private journal, including every saved entry.")) {
-          this.lockJournal({ skipSave: true });
-          this.tasks = [];
-          this.timetable = [];
-          this.notes = [];
-          this.events = [];
-          this.marks = [];
-          this.journalBlob = null;
-          this.focusMinutes = 0;
-          this.pomodoroSessions = 0;
-          this.activeDates = [];
-          this.persist();
-          this.renderAll();
-          this.showToast("All data cleared", "info");
-        }
-      });
-    }
-
-    // Sign Out
-    const signOutBtn = document.getElementById("sign-out-btn");
-    if (signOutBtn) {
-      signOutBtn.addEventListener("click", async () => {
-        if (!supabaseClient) return;
-        if (confirm("Sign out of StudyBuddy? Your data stays safe in your account.")) {
-          await supabaseClient.auth.signOut();
-          window.location.reload();
-        }
-      });
-    }
-
-    // Top quick button to add assignment
-    const quickAddTaskBtn = document.getElementById("quick-add-task-btn");
-    if (quickAddTaskBtn) {
-      quickAddTaskBtn.addEventListener("click", () => {
-        this.openTaskModal();
-      });
-    }
-
-    // Quick chips on dashboard
-    document.getElementById("chip-add-task")?.addEventListener("click", () => this.openTaskModal());
-    document.getElementById("chip-add-schedule")?.addEventListener("click", () => this.openTimetableModal());
-    document.getElementById("chip-start-focus")?.addEventListener("click", () => {
-      this.switchTab("progress");
-      if (!this.isTimerRunning) this.toggleTimer();
+      if (!ok) return;
+      if (this.journalUnlocked) this.lockJournal();
+      await this.persist();
+      await supabaseClient.auth.signOut();
+      window.location.reload();
     });
-    document.getElementById("dash-new-note-btn")?.addEventListener("click", () => this.openNoteModal());
+
+    // Topbar gets a hairline once the page scrolls under it.
+    const topbar = document.querySelector(".topbar");
+    window.addEventListener("scroll", () => {
+      topbar?.classList.toggle("is-scrolled", window.scrollY > 4);
+    }, { passive: true });
   }
 
   switchTab(tabId) {
+    if (!TAB_META[tabId]) return;
+    const changed = tabId !== this.currentTab;
     this.currentTab = tabId;
 
-    // Update nav links
     document.querySelectorAll(".nav-menu .nav-item").forEach(item => {
-      if (item.dataset.tab === tabId) {
-        item.classList.add("active");
-      } else {
-        item.classList.remove("active");
-      }
+      item.classList.toggle("active", item.dataset.tab === tabId);
+    });
+    const bottomTabs = ["dashboard", "assignments", "calendar"];
+    document.querySelectorAll(".bottom-nav .bnav-item").forEach(item => {
+      const active = item.dataset.tab ? item.dataset.tab === tabId : !bottomTabs.includes(tabId);
+      item.classList.toggle("active", active);
     });
 
-    // Update panes
     document.querySelectorAll(".tab-pane").forEach(pane => {
-      pane.classList.remove("active");
+      pane.classList.toggle("active", pane.id === `tab-${tabId}`);
     });
-    const targetPane = document.getElementById(`tab-${tabId}`);
-    if (targetPane) {
-      targetPane.classList.add("active");
-    }
 
-    // Close mobile drawer if open
-    document.getElementById("sidebar")?.classList.remove("open");
-    document.getElementById("sidebar-overlay")?.classList.remove("active");
+    this.closeDrawer?.();
+    this.closeQuickAdd();
 
     // The journal is a private space: leaving it re-locks it, so opening the
     // tab again always asks for the password (unless the user opted out).
@@ -794,139 +801,800 @@ class StudyBuddyApp {
       this.lockJournal();
     }
 
-    // Scroll to top
-    window.scrollTo({ top: 0, behavior: "smooth" });
-
-    // Refresh views that might have updated
+    this.updatePageHeader();
+    if (changed) window.scrollTo({ top: 0, behavior: "auto" });
     this.renderAll();
   }
 
-  // Toast Notification System
-  showToast(message, type = "success") {
+  updatePageHeader() {
+    const meta = TAB_META[this.currentTab] || TAB_META.dashboard;
+    const titleEl = document.getElementById("page-title");
+    const subEl = document.getElementById("page-subtitle");
+    if (titleEl) titleEl.textContent = meta.title;
+    if (subEl) {
+      subEl.textContent = meta.subtitle ||
+        new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    }
+    this.updateDocumentTitle();
+  }
+
+  updateDocumentTitle() {
+    if (this.isTimerRunning) {
+      const label = this.timerMode === "pomodoro" ? "Focus" : "Break";
+      document.title = `${this.formatTimer(this.timeLeft)} · ${label} — StudyBuddy`;
+      return;
+    }
+    const meta = TAB_META[this.currentTab] || TAB_META.dashboard;
+    document.title = `${meta.title} · StudyBuddy`;
+  }
+
+  // ===========================================================================
+  // Toasts, confirm dialog & undo
+  // ===========================================================================
+  showToast(message, type = "success", options = {}) {
     const container = document.getElementById("toast-container");
-    if (!container) return;
+    if (!container) return () => {};
 
     const toast = document.createElement("div");
     toast.className = `toast toast-${type}`;
+    toast.setAttribute("role", type === "alert" ? "alert" : "status");
+    const icon = type === "info" ? "fa-circle-info" : type === "alert" ? "fa-triangle-exclamation" : "fa-circle-check";
+    toast.innerHTML = `<i class="fa-solid ${icon}"></i><span class="toast-message"></span>`;
+    toast.querySelector(".toast-message").textContent = message;
 
-    let icon = "fa-circle-check";
-    if (type === "info") icon = "fa-circle-info";
-    if (type === "alert") icon = "fa-triangle-exclamation";
+    let timer = null;
+    const dismiss = () => {
+      clearTimeout(timer);
+      toast.classList.add("leaving");
+      setTimeout(() => toast.remove(), 260);
+    };
 
-    toast.innerHTML = `
-      <i class="fa-solid ${icon}"></i>
-      <span>${message}</span>
-    `;
+    if (options.action) {
+      const actionBtn = document.createElement("button");
+      actionBtn.type = "button";
+      actionBtn.className = "toast-action";
+      actionBtn.textContent = options.action.label;
+      actionBtn.addEventListener("click", () => {
+        dismiss();
+        options.action.onClick();
+      });
+      toast.appendChild(actionBtn);
+    }
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "toast-close";
+    closeBtn.setAttribute("aria-label", "Dismiss");
+    closeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+    closeBtn.addEventListener("click", dismiss);
+    toast.appendChild(closeBtn);
 
     container.appendChild(toast);
+    while (container.children.length > 4) container.firstElementChild.remove();
 
-    setTimeout(() => {
-      toast.style.opacity = "0";
-      toast.style.transform = "translateY(10px)";
-      setTimeout(() => toast.remove(), 300);
-    }, 3200);
+    timer = setTimeout(dismiss, options.duration || (options.action ? 6500 : 3400));
+    return dismiss;
+  }
+
+  /**
+   * Removes an item from one of the workspace lists and offers a one-click
+   * Undo instead of a blocking "Are you sure?" prompt.
+   */
+  removeWithUndo(listName, id, label) {
+    const list = this[listName];
+    const index = list.findIndex(item => item.id === id);
+    if (index === -1) return;
+    const [removed] = list.splice(index, 1);
+    if (listName === "tasks" && this.timerTaskId === id) this.timerTaskId = "";
+    this.schedulePersist();
+    this.renderAll();
+
+    this.showToast(`${label} deleted`, "info", {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          const target = this[listName];
+          if (target.some(item => item.id === removed.id)) return;
+          target.splice(Math.min(index, target.length), 0, removed);
+          this.schedulePersist();
+          this.renderAll();
+        }
+      }
+    });
+  }
+
+  setupConfirmDialog() {
+    document.getElementById("confirm-modal-ok")?.addEventListener("click", () => this.resolveConfirm(true));
+    document.getElementById("confirm-modal-cancel")?.addEventListener("click", () => this.resolveConfirm(false));
+  }
+
+  /** Styled replacement for window.confirm(). Resolves to true / false. */
+  confirmDialog({ title, message = "", confirmLabel = "Confirm", cancelLabel = "Cancel", tone = "danger", icon = "" } = {}) {
+    const modal = document.getElementById("confirm-modal");
+    if (!modal) return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+    if (this._confirmResolve) this.resolveConfirm(false);
+
+    document.getElementById("confirm-modal-title").textContent = title || "Are you sure?";
+    document.getElementById("confirm-modal-text").textContent = message;
+    const okBtn = document.getElementById("confirm-modal-ok");
+    const cancelBtn = document.getElementById("confirm-modal-cancel");
+    okBtn.textContent = confirmLabel;
+    okBtn.className = `btn ${tone === "danger" ? "btn-danger" : "btn-primary"}`;
+    cancelBtn.textContent = cancelLabel;
+    const iconEl = document.getElementById("confirm-modal-icon");
+    iconEl.className = `confirm-icon ${tone === "danger" ? "" : "is-info"}`;
+    iconEl.innerHTML = `<i class="fa-solid ${icon || (tone === "danger" ? "fa-triangle-exclamation" : "fa-circle-question")}"></i>`;
+
+    this.openModal(modal, tone === "danger" ? cancelBtn : okBtn);
+    return new Promise(resolve => { this._confirmResolve = resolve; });
+  }
+
+  resolveConfirm(value) {
+    const resolve = this._confirmResolve;
+    this._confirmResolve = null;
+    this.closeModal(document.getElementById("confirm-modal"), { fromConfirm: true });
+    if (resolve) resolve(value);
   }
 
   // ===========================================================================
-  // 5. Modal Setup & Handling
+  // Modals
   // ===========================================================================
   setupModals() {
-    // Task Modal
-    const taskModal = document.getElementById("task-modal");
-    document.getElementById("add-assignment-modal-btn")?.addEventListener("click", () => this.openTaskModal());
-    document.getElementById("empty-state-add-task-btn")?.addEventListener("click", () => this.openTaskModal());
-    document.getElementById("close-task-modal-btn")?.addEventListener("click", () => this.closeModal(taskModal));
-    document.getElementById("cancel-task-btn")?.addEventListener("click", () => this.closeModal(taskModal));
+    const bind = (id, fn) => document.getElementById(id)?.addEventListener("click", fn);
 
-    // Timetable Modal
-    const timetableModal = document.getElementById("timetable-modal");
-    document.getElementById("add-timetable-slot-btn")?.addEventListener("click", () => this.openTimetableModal());
-    document.getElementById("empty-state-add-slot-btn")?.addEventListener("click", () => this.openTimetableModal());
-    document.getElementById("close-timetable-modal-btn")?.addEventListener("click", () => this.closeModal(timetableModal));
-    document.getElementById("cancel-timetable-btn")?.addEventListener("click", () => this.closeModal(timetableModal));
+    bind("add-assignment-modal-btn", () => this.openTaskModal());
+    bind("empty-state-add-task-btn", () => this.openTaskModal());
+    bind("add-timetable-slot-btn", () => this.openTimetableModal());
+    bind("empty-state-add-slot-btn", () => this.openTimetableModal());
+    bind("add-note-btn", () => this.openNoteModal());
+    bind("empty-state-add-note-btn", () => this.openNoteModal());
+    bind("add-event-btn", () => this.openEventModal());
+    bind("empty-state-add-event-btn", () => this.openEventModal());
+    bind("agenda-add-btn", () => this.openEventModal());
+    bind("add-mark-btn", () => this.openMarkModal());
+    bind("empty-state-add-mark-btn", () => this.openMarkModal());
 
-    // Note Modal
-    const noteModal = document.getElementById("note-modal");
-    document.getElementById("add-note-btn")?.addEventListener("click", () => this.openNoteModal());
-    document.getElementById("empty-state-add-note-btn")?.addEventListener("click", () => this.openNoteModal());
-    document.getElementById("close-note-modal-btn")?.addEventListener("click", () => this.closeModal(noteModal));
-    document.getElementById("cancel-note-btn")?.addEventListener("click", () => this.closeModal(noteModal));
+    const closers = {
+      "task-modal": ["close-task-modal-btn", "cancel-task-btn"],
+      "timetable-modal": ["close-timetable-modal-btn", "cancel-timetable-btn"],
+      "note-modal": ["close-note-modal-btn", "cancel-note-btn"],
+      "event-modal": ["close-event-modal-btn", "cancel-event-btn"],
+      "mark-modal": ["close-mark-modal-btn", "cancel-mark-btn"],
+      "settings-modal": ["close-settings-modal-btn", "cancel-settings-btn"],
+      "journal-password-modal": ["close-journal-password-modal-btn", "cancel-journal-password-btn"],
+      "journal-question-modal": ["close-journal-question-modal-btn", "cancel-journal-question-btn"]
+    };
+    Object.entries(closers).forEach(([modalId, buttons]) => {
+      buttons.forEach(btnId => bind(btnId, () => this.closeModal(document.getElementById(modalId))));
+    });
+    document.querySelectorAll("[data-close-modal]").forEach(btn => {
+      btn.addEventListener("click", () => this.closeModal(btn.closest(".modal-backdrop")));
+    });
 
-    // Event Modal
-    const eventModal = document.getElementById("event-modal");
-    document.getElementById("add-event-btn")?.addEventListener("click", () => this.openEventModal());
-    document.getElementById("empty-state-add-event-btn")?.addEventListener("click", () => this.openEventModal());
-    document.getElementById("close-event-modal-btn")?.addEventListener("click", () => this.closeModal(eventModal));
-    document.getElementById("cancel-event-btn")?.addEventListener("click", () => this.closeModal(eventModal));
-
-    // Mark Modal
-    const markModal = document.getElementById("mark-modal");
-    document.getElementById("add-mark-btn")?.addEventListener("click", () => this.openMarkModal());
-    document.getElementById("empty-state-add-mark-btn")?.addEventListener("click", () => this.openMarkModal());
-    document.getElementById("close-mark-modal-btn")?.addEventListener("click", () => this.closeModal(markModal));
-    document.getElementById("cancel-mark-btn")?.addEventListener("click", () => this.closeModal(markModal));
-
-    // Close on backdrop click
-    [taskModal, timetableModal, noteModal, eventModal, markModal].forEach(modal => {
-      modal?.addEventListener("click", (e) => {
-        if (e.target === modal) this.closeModal(modal);
+    // Close on a click that starts AND ends on the backdrop (dragging a text
+    // selection out of a field must not throw away a half-filled form).
+    document.querySelectorAll(".modal-backdrop").forEach(modal => {
+      let pressedOnBackdrop = false;
+      modal.addEventListener("mousedown", (e) => { pressedOnBackdrop = e.target === modal; });
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal && pressedOnBackdrop) this.closeModal(modal);
       });
     });
 
-    // Close on Escape key
+    // Escape closes the top-most layer only.
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        document.querySelectorAll(".modal-backdrop.active").forEach(m => this.closeModal(m));
+      if (e.key !== "Escape") return;
+      if (this.isPaletteOpen()) { this.closePalette(); e.preventDefault(); return; }
+      if (this.isQuickAddOpen()) { this.closeQuickAdd(); e.preventDefault(); return; }
+      const open = [...document.querySelectorAll(".modal-backdrop.active")];
+      if (open.length) {
+        e.preventDefault();
+        this.closeModal(open[open.length - 1]);
+        return;
+      }
+      this.closeDrawer?.();
+    });
+
+    // "Today / Tomorrow / Next week" shortcuts under date fields.
+    document.querySelectorAll(".date-shortcuts").forEach(group => {
+      group.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-offset]");
+        const input = document.getElementById(group.dataset.target);
+        if (!btn || !input) return;
+        const d = new Date();
+        d.setDate(d.getDate() + Number(btn.dataset.offset));
+        input.value = this.toDateKey(d);
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
+  }
+
+  openModal(modal, focusTarget = null) {
+    if (!modal) return;
+    this.closeQuickAdd();
+    if (!document.querySelector(".modal-backdrop.active")) this._lastFocus = document.activeElement;
+    modal.classList.add("active");
+    document.body.classList.add("modal-open");
+    const target = focusTarget || modal.querySelector(
+      ".modal-body input:not([type=hidden]):not([type=radio]):not([type=checkbox]), .modal-body textarea, .modal-body select"
+    );
+    // Focus right away (the backdrop becomes visible synchronously) so keys
+    // typed immediately after opening land in the first field.
+    target?.focus({ preventScroll: true });
+    if (target && document.activeElement !== target) {
+      requestAnimationFrame(() => target.focus({ preventScroll: true }));
+    }
+  }
+
+  closeModal(modal, { fromConfirm = false } = {}) {
+    if (!modal || !modal.classList.contains("active")) return;
+    modal.classList.remove("active");
+    if (modal.id === "confirm-modal" && !fromConfirm && this._confirmResolve) {
+      const resolve = this._confirmResolve;
+      this._confirmResolve = null;
+      resolve(false);
+    }
+    if (!document.querySelector(".modal-backdrop.active")) {
+      document.body.classList.remove("modal-open");
+      const last = this._lastFocus;
+      this._lastFocus = null;
+      if (last && typeof last.focus === "function" && document.contains(last)) last.focus({ preventScroll: true });
+    }
+  }
+
+  // ===========================================================================
+  // Quick-add menu ("+ New")
+  // ===========================================================================
+  setupQuickAdd() {
+    const menu = document.getElementById("quick-add-menu");
+    const desktopBtn = document.getElementById("quick-add-btn");
+    const mobileBtn = document.getElementById("bnav-add-btn");
+    if (!menu) return;
+
+    desktopBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.toggleQuickAdd(desktopBtn, false);
+    });
+    mobileBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.toggleQuickAdd(mobileBtn, true);
+    });
+    menu.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-create]");
+      if (!item) return;
+      this.closeQuickAdd();
+      this.createItem(item.dataset.create);
+    });
+    menu.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const items = [...menu.querySelectorAll(".menu-item")];
+      const idx = items.indexOf(document.activeElement);
+      const next = (idx + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    });
+    document.addEventListener("click", (e) => {
+      if (this.isQuickAddOpen() && !menu.contains(e.target)) this.closeQuickAdd();
+    });
+    window.addEventListener("resize", () => this.closeQuickAdd());
+  }
+
+  isQuickAddOpen() {
+    return Boolean(document.getElementById("quick-add-menu")?.classList.contains("open"));
+  }
+
+  toggleQuickAdd(anchor, asSheet) {
+    const menu = document.getElementById("quick-add-menu");
+    if (!menu) return;
+    if (this.isQuickAddOpen()) {
+      this.closeQuickAdd();
+      return;
+    }
+    menu.classList.toggle("is-sheet", asSheet);
+    if (!asSheet && anchor) {
+      const rect = anchor.getBoundingClientRect();
+      menu.style.top = `${rect.bottom + 6}px`;
+      menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+      menu.style.left = "auto";
+      menu.style.bottom = "auto";
+    }
+    menu.classList.add("open");
+    anchor?.setAttribute("aria-expanded", "true");
+    menu.querySelector(".menu-item")?.focus({ preventScroll: true });
+  }
+
+  closeQuickAdd() {
+    const menu = document.getElementById("quick-add-menu");
+    if (!menu || !menu.classList.contains("open")) return;
+    menu.classList.remove("open");
+    document.getElementById("quick-add-btn")?.setAttribute("aria-expanded", "false");
+  }
+
+  createItem(kind) {
+    switch (kind) {
+      case "task": this.openTaskModal(); break;
+      case "event": this.openEventModal(); break;
+      case "slot": this.openTimetableModal(); break;
+      case "note": this.openNoteModal(); break;
+      case "mark": this.openMarkModal(); break;
+      default: break;
+    }
+  }
+
+  // ===========================================================================
+  // Command palette (Ctrl/⌘ + K)
+  // ===========================================================================
+  setupPalette() {
+    const backdrop = document.getElementById("palette");
+    const input = document.getElementById("palette-input");
+    const results = document.getElementById("palette-results");
+    if (!backdrop || !input || !results) return;
+
+    input.addEventListener("input", () => {
+      this.paletteIndex = 0;
+      this.renderPalette();
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") { e.preventDefault(); this.movePalette(1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); this.movePalette(-1); }
+      else if (e.key === "Enter") { e.preventDefault(); this.runPaletteItem(this.paletteIndex); }
+    });
+    results.addEventListener("click", (e) => {
+      const el = e.target.closest("[data-index]");
+      if (el) this.runPaletteItem(Number(el.dataset.index));
+    });
+    results.addEventListener("mousemove", (e) => {
+      const el = e.target.closest("[data-index]");
+      if (!el) return;
+      const idx = Number(el.dataset.index);
+      if (idx !== this.paletteIndex) {
+        this.paletteIndex = idx;
+        this.highlightPalette(false);
       }
     });
-
-    // Change Journal Password Modal
-    const journalPasswordModal = document.getElementById("journal-password-modal");
-    document.getElementById("journal-change-pass-btn")?.addEventListener("click", () => this.openJournalPasswordModal());
-    document.getElementById("close-journal-password-modal-btn")?.addEventListener("click", () => this.closeModal(journalPasswordModal));
-    document.getElementById("cancel-journal-password-btn")?.addEventListener("click", () => this.closeModal(journalPasswordModal));
-    journalPasswordModal?.addEventListener("click", (e) => {
-      if (e.target === journalPasswordModal) this.closeModal(journalPasswordModal);
-    });
-
-    // Recovery Question Modal
-    const journalQuestionModal = document.getElementById("journal-question-modal");
-    document.getElementById("close-journal-question-modal-btn")?.addEventListener("click", () => this.closeModal(journalQuestionModal));
-    document.getElementById("cancel-journal-question-btn")?.addEventListener("click", () => this.closeModal(journalQuestionModal));
-    journalQuestionModal?.addEventListener("click", (e) => {
-      if (e.target === journalQuestionModal) this.closeModal(journalQuestionModal);
+    backdrop.addEventListener("mousedown", (e) => {
+      if (e.target === backdrop) this.closePalette();
     });
   }
 
-  openModal(modal) {
-    if (modal) modal.classList.add("active");
+  isPaletteOpen() {
+    return Boolean(document.getElementById("palette")?.classList.contains("open"));
   }
 
-  closeModal(modal) {
-    if (modal) modal.classList.remove("active");
+  openPalette(initial = "") {
+    const backdrop = document.getElementById("palette");
+    const input = document.getElementById("palette-input");
+    if (!backdrop || !input) return;
+    this.closeDrawer?.();
+    this.closeQuickAdd();
+    if (!this.isPaletteOpen()) this._paletteReturnFocus = document.activeElement;
+    backdrop.classList.add("open");
+    backdrop.setAttribute("aria-hidden", "false");
+    input.value = initial;
+    this.paletteIndex = 0;
+    this.renderPalette();
+    input.focus();
   }
 
-  // ===========================================================================
-  // 6. To-Do List (Assignments) Management
-  // ===========================================================================
-  setupTaskEvents() {
-    // Form Submission
-    const taskForm = document.getElementById("task-form");
-    if (taskForm) {
-      taskForm.addEventListener("submit", (e) => {
-        e.preventDefault();
-        this.saveTaskFromForm();
+  closePalette() {
+    const backdrop = document.getElementById("palette");
+    if (!backdrop || !backdrop.classList.contains("open")) return;
+    backdrop.classList.remove("open");
+    backdrop.setAttribute("aria-hidden", "true");
+    const ret = this._paletteReturnFocus;
+    this._paletteReturnFocus = null;
+    if (ret && typeof ret.focus === "function" && document.contains(ret)) ret.focus({ preventScroll: true });
+  }
+
+  paletteCommands() {
+    const nav = TAB_ORDER.map((tab, i) => ({
+      group: "nav",
+      title: `Go to ${TAB_META[tab].title}`,
+      icon: TAB_META[tab].icon,
+      hint: String(i + 1),
+      keywords: `go open ${tab} ${TAB_META[tab].title}`,
+      run: () => this.switchTab(tab)
+    }));
+    return [
+      { group: "create", title: "New assignment", icon: "fa-solid fa-list-check", hint: "A", keywords: "add create task homework assignment", run: () => this.openTaskModal() },
+      { group: "create", title: "New event or test", icon: "fa-regular fa-calendar-plus", hint: "E", keywords: "add create event exam test calendar", run: () => this.openEventModal() },
+      { group: "create", title: "New note", icon: "fa-regular fa-note-sticky", hint: "N", keywords: "add create note", run: () => this.openNoteModal() },
+      { group: "create", title: "Record a mark", icon: "fa-solid fa-award", hint: "M", keywords: "add create mark grade score result", run: () => this.openMarkModal() },
+      { group: "create", title: "Add timetable slot", icon: "fa-solid fa-table-cells", hint: "S", keywords: "add create slot session timetable lecture", run: () => this.openTimetableModal() },
+      {
+        group: "create",
+        title: this.isTimerRunning ? "Pause focus timer" : "Start a focus session",
+        icon: this.isTimerRunning ? "fa-solid fa-pause" : "fa-solid fa-play",
+        hint: "F",
+        keywords: "focus timer pomodoro start pause study",
+        run: () => this.toggleTimer()
+      },
+      ...nav,
+      { group: "more", title: "Toggle dark mode", icon: "fa-solid fa-circle-half-stroke", hint: "T", keywords: "theme dark light mode", run: () => this.toggleTheme() },
+      { group: "more", title: "Settings", icon: "fa-solid fa-gear", hint: "", keywords: "settings preferences timer durations sounds", run: () => this.openSettings() },
+      { group: "more", title: "Export workspace", icon: "fa-solid fa-download", hint: "", keywords: "export backup download json data", run: () => this.exportWorkspace() },
+      { group: "more", title: "Keyboard shortcuts", icon: "fa-regular fa-keyboard", hint: "?", keywords: "keyboard shortcuts help keys", run: () => this.openModal(document.getElementById("shortcuts-modal")) }
+    ];
+  }
+
+  // Data that can be searched from the palette (journal entries are never included).
+  paletteDataItems() {
+    const items = [];
+    this.tasks.forEach(t => items.push({
+      group: "Assignments",
+      title: t.title,
+      sub: `${t.subject || "No subject"} · ${t.completed ? "Done" : this.formatDueDateBadge(t.dueDate).text}`,
+      icon: "fa-solid fa-list-check",
+      color: this.subjectColor(t.subject),
+      haystack: `${t.title} ${t.subject} ${t.description || ""}`,
+      run: () => { this.switchTab("assignments"); this.openTaskModal(t); }
+    }));
+    this.events.forEach(ev => items.push({
+      group: "Events",
+      title: ev.title,
+      sub: `${this.formatLongDate(this.eventStart(ev))} · ${this.formatClock(this.eventStart(ev))}${ev.subject ? ` · ${ev.subject}` : ""}`,
+      icon: this.eventTypeInfo(ev.type).icon,
+      color: `var(--type-${this.eventTypeKey(ev.type)})`,
+      haystack: `${ev.title} ${ev.subject || ""} ${ev.location || ""} ${ev.notes || ""}`,
+      run: () => {
+        this.selectCalendarDate(ev.date);
+        this.switchTab("calendar");
+        this.openEventModal(ev);
+      }
+    }));
+    this.notes.forEach(n => items.push({
+      group: "Notes",
+      title: n.title,
+      sub: `${n.subject || ""} · ${String(n.content || "").replace(/\s+/g, " ").slice(0, 70)}`,
+      icon: "fa-regular fa-note-sticky",
+      color: `var(--note-${n.color || "sky"})`,
+      haystack: `${n.title} ${n.subject} ${n.content}`,
+      run: () => { this.switchTab("notes"); this.openNoteModal(n); }
+    }));
+    this.marks.forEach(m => {
+      const p = this.markPercent(m);
+      items.push({
+        group: "Marks",
+        title: m.title,
+        sub: `${m.subject || ""} · ${p === null ? "—" : p + "%"} · ${this.markGrade(p)}`,
+        icon: "fa-solid fa-award",
+        color: this.subjectColor(m.subject),
+        haystack: `${m.title} ${m.subject} ${m.notes || ""}`,
+        run: () => { this.switchTab("marks"); this.openMarkModal(m); }
+      });
+    });
+    this.timetable.forEach(s => items.push({
+      group: "Timetable",
+      title: s.title,
+      sub: `${s.day} · ${this.formatHM(s.startTime)} – ${this.formatHM(s.endTime)}${s.location ? ` · ${s.location}` : ""}`,
+      icon: "fa-solid fa-table-cells",
+      color: this.subjectColor(s.subject),
+      haystack: `${s.title} ${s.subject} ${s.location || ""} ${s.day}`,
+      run: () => {
+        this.selectedDay = s.day;
+        this.setTimetableView("day");
+        this.switchTab("timetable");
+        this.openTimetableModal(s);
+      }
+    }));
+    return items;
+  }
+
+  renderPalette() {
+    const input = document.getElementById("palette-input");
+    const results = document.getElementById("palette-results");
+    if (!input || !results) return;
+    const query = input.value.trim().toLowerCase();
+    const tokens = query.split(/\s+/).filter(Boolean);
+    const commands = this.paletteCommands();
+    const groups = [];
+
+    if (!tokens.length) {
+      groups.push({ label: "Create", items: commands.filter(c => c.group === "create") });
+      groups.push({ label: "Jump to", items: commands.filter(c => c.group === "nav") });
+      groups.push({ label: "More", items: commands.filter(c => c.group === "more") });
+    } else {
+      const matches = (text) => tokens.every(tok => text.toLowerCase().includes(tok));
+      const score = (title) => {
+        const t = String(title || "").toLowerCase();
+        if (t.startsWith(query)) return 3;
+        if (t.includes(query)) return 2;
+        return 1;
+      };
+      const cmdMatches = commands
+        .filter(c => matches(`${c.title} ${c.keywords}`))
+        .sort((a, b) => score(b.title) - score(a.title))
+        .slice(0, 5);
+      if (cmdMatches.length) groups.push({ label: "Commands", items: cmdMatches });
+
+      const byGroup = {};
+      this.paletteDataItems()
+        .filter(item => matches(item.haystack))
+        .sort((a, b) => score(b.title) - score(a.title))
+        .forEach(item => {
+          byGroup[item.group] = byGroup[item.group] || [];
+          if (byGroup[item.group].length < 6) byGroup[item.group].push(item);
+        });
+      ["Assignments", "Events", "Notes", "Marks", "Timetable"].forEach(label => {
+        if (byGroup[label]) groups.push({ label, items: byGroup[label] });
       });
     }
 
-    // Search & Filter
+    this.paletteItems = groups.flatMap(g => g.items);
+    if (this.paletteIndex >= this.paletteItems.length) this.paletteIndex = 0;
+
+    if (!this.paletteItems.length) {
+      results.innerHTML = `<div class="palette-empty">No results for “${this.escapeHTML(input.value.trim())}”.<br>Try a subject, a title or a command like “new note”.</div>`;
+      return;
+    }
+
+    let index = 0;
+    results.innerHTML = groups.map(group => `
+      <div class="palette-group-label">${this.escapeHTML(group.label)}</div>
+      ${group.items.map(item => {
+        const i = index++;
+        return `
+          <button type="button" class="palette-item ${i === this.paletteIndex ? "active" : ""}" data-index="${i}" role="option" aria-selected="${i === this.paletteIndex}">
+            <span class="palette-item-icon" ${item.color ? `style="--subj: ${item.color}"` : ""}><i class="${item.icon}"></i></span>
+            <span class="palette-item-text">
+              <span class="palette-item-title">${this.highlightMatch(item.title, query)}</span>
+              ${item.sub ? `<span class="palette-item-sub">${this.escapeHTML(item.sub)}</span>` : ""}
+            </span>
+            ${item.hint ? `<kbd class="kbd palette-item-hint">${this.escapeHTML(item.hint)}</kbd>` : ""}
+          </button>`;
+      }).join("")}
+    `).join("");
+  }
+
+  highlightMatch(text, query) {
+    const raw = String(text || "");
+    if (!query) return this.escapeHTML(raw);
+    const idx = raw.toLowerCase().indexOf(query);
+    if (idx === -1) return this.escapeHTML(raw);
+    return this.escapeHTML(raw.slice(0, idx)) +
+      `<mark>${this.escapeHTML(raw.slice(idx, idx + query.length))}</mark>` +
+      this.escapeHTML(raw.slice(idx + query.length));
+  }
+
+  movePalette(delta) {
+    if (!this.paletteItems.length) return;
+    this.paletteIndex = (this.paletteIndex + delta + this.paletteItems.length) % this.paletteItems.length;
+    this.highlightPalette(true);
+  }
+
+  highlightPalette(scroll) {
+    document.querySelectorAll("#palette-results .palette-item").forEach(el => {
+      const active = Number(el.dataset.index) === this.paletteIndex;
+      el.classList.toggle("active", active);
+      el.setAttribute("aria-selected", String(active));
+      if (active && scroll) el.scrollIntoView({ block: "nearest" });
+    });
+  }
+
+  runPaletteItem(index) {
+    const item = this.paletteItems[index];
+    if (!item) return;
+    this.closePalette();
+    setTimeout(() => item.run(), 10);
+  }
+
+  // ===========================================================================
+  // Keyboard shortcuts
+  // ===========================================================================
+  setupShortcuts() {
+    document.addEventListener("keydown", (e) => {
+      if (window.studyBuddy && window.studyBuddy !== this) return;
+      if (document.getElementById("app-layout")?.classList.contains("hidden")) return;
+
+      const key = e.key;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (this.isPaletteOpen()) this.closePalette();
+        else this.openPalette();
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (this.isTypingTarget(e.target)) return;
+      if (this.isPaletteOpen() || document.querySelector(".modal-backdrop.active")) return;
+
+      const lower = key.toLowerCase();
+      let handled = true;
+      if (key === "/") this.openPalette();
+      else if (key === "?") this.openModal(document.getElementById("shortcuts-modal"));
+      else if (lower === "a") this.openTaskModal();
+      else if (lower === "e") this.openEventModal();
+      else if (lower === "n") this.openNoteModal();
+      else if (lower === "m") this.openMarkModal();
+      else if (lower === "s") this.openTimetableModal();
+      else if (lower === "f") this.toggleTimer();
+      else if (lower === "t") this.toggleTheme();
+      else if (/^[1-8]$/.test(key)) this.switchTab(TAB_ORDER[Number(key) - 1]);
+      else handled = false;
+      if (handled) e.preventDefault();
+    });
+  }
+
+  isTypingTarget(el) {
+    if (!el || !el.tagName) return false;
+    const tag = el.tagName.toLowerCase();
+    return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
+  }
+
+  updateShortcutLabels() {
+    document.querySelectorAll("[data-shortcut-label]").forEach(el => {
+      el.textContent = IS_MAC ? "⌘ K" : "Ctrl K";
+    });
+  }
+
+  // ===========================================================================
+  // Settings, export / import, clear data
+  // ===========================================================================
+  setupSettings() {
+    document.getElementById("timer-settings-btn")?.addEventListener("click", () => this.openSettings());
+    document.getElementById("settings-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      this.saveSettingsFromForm();
+    });
+    document.getElementById("export-data-btn")?.addEventListener("click", () => this.exportWorkspace());
+    document.getElementById("import-data-btn")?.addEventListener("click", () => {
+      document.getElementById("import-data-file")?.click();
+    });
+    document.getElementById("import-data-file")?.addEventListener("change", (e) => {
+      this.importWorkspaceFile(e.target.files?.[0]);
+    });
+    document.getElementById("clear-all-data-btn")?.addEventListener("click", () => this.clearAllData());
+  }
+
+  openSettings() {
+    const s = this.settings;
+    const set = (id, value) => { const el = document.getElementById(id); if (el) el.value = value; };
+    const check = (id, value) => { const el = document.getElementById(id); if (el) el.checked = Boolean(value); };
+    set("set-focus-min", s.focusMin);
+    set("set-short-min", s.shortMin);
+    set("set-long-min", s.longMin);
+    set("set-focus-goal", s.focusGoal);
+    check("set-autostart", s.autoStart);
+    check("set-sounds", s.sounds);
+    check("set-confetti", s.confetti);
+    const build = document.getElementById("settings-build");
+    if (build) build.textContent = APP_BUILD;
+    this.closeDrawer?.();
+    this.openModal(document.getElementById("settings-modal"));
+  }
+
+  saveSettingsFromForm() {
+    const num = (id, min, max, fallback) => {
+      const v = parseInt(document.getElementById(id)?.value, 10);
+      return isNaN(v) ? fallback : Math.min(max, Math.max(min, v));
+    };
+    const next = {
+      ...this.settings,
+      focusMin: num("set-focus-min", 5, 120, DEFAULT_SETTINGS.focusMin),
+      shortMin: num("set-short-min", 1, 30, DEFAULT_SETTINGS.shortMin),
+      longMin: num("set-long-min", 5, 60, DEFAULT_SETTINGS.longMin),
+      focusGoal: num("set-focus-goal", 10, 600, DEFAULT_SETTINGS.focusGoal),
+      autoStart: Boolean(document.getElementById("set-autostart")?.checked),
+      sounds: Boolean(document.getElementById("set-sounds")?.checked),
+      confetti: Boolean(document.getElementById("set-confetti")?.checked)
+    };
+    const durationsChanged = ["focusMin", "shortMin", "longMin"].some(k => next[k] !== this.settings[k]);
+    this.settings = next;
+    if (durationsChanged && !this.isTimerRunning) this.timeLeft = this.modeSeconds(this.timerMode);
+
+    this.schedulePersist();
+    this.closeModal(document.getElementById("settings-modal"));
+    this.renderAll();
+    this.showToast(durationsChanged && this.isTimerRunning
+      ? "Settings saved — new durations apply from the next session"
+      : "Settings saved");
+  }
+
+  downloadJSON(filename, data) {
+    const file = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  async exportWorkspace() {
+    if (this.journalUnlocked && this.journalDirty) await this.saveJournalEntry();
+    this.downloadJSON(`studybuddy-workspace-${this.toDateKey(new Date())}.json`, {
+      app: "StudyBuddy",
+      type: "studybuddy-workspace",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: this.workspaceSnapshot()
+    });
+    this.showToast("Workspace exported — journal pages stay encrypted in the file");
+  }
+
+  async importWorkspaceFile(file) {
+    const input = document.getElementById("import-data-file");
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      const data = (parsed && parsed.type === "studybuddy-workspace" && parsed.data) ? parsed.data : parsed;
+      if (!this.looksLikeWorkspace(data)) throw new Error("not a StudyBuddy workspace export");
+
+      const count = (arr, word) => {
+        const n = Array.isArray(arr) ? arr.length : 0;
+        return `${n} ${word}${n === 1 ? "" : "s"}`;
+      };
+      const ok = await this.confirmDialog({
+        title: "Replace your workspace?",
+        message: `This file has ${count(data.tasks, "assignment")}, ${count(data.events, "event")}, ${count(data.notes, "note")} and ${count(data.marks, "mark")}. ` +
+          "Everything currently in your workspace — including your journal — will be replaced.",
+        confirmLabel: "Replace workspace"
+      });
+      if (!ok) return;
+
+      this.lockJournal({ skipSave: true });
+      this.pauseTimer();
+      this.applyWorkspaceState(data);
+      this.persist();
+      this.closeModal(document.getElementById("settings-modal"));
+      this.renderAll();
+      this.showToast("Workspace imported");
+    } catch (e) {
+      console.warn("[StudyBuddy] Import rejected:", e);
+      this.showToast("That file isn't a StudyBuddy workspace export", "alert");
+    } finally {
+      if (input) input.value = "";
+    }
+  }
+
+  async clearAllData() {
+    const ok = await this.confirmDialog({
+      title: "Clear your entire workspace?",
+      message: "This permanently deletes all your assignments, timetable slots, notes, events, marks, focus history — and your private journal, including every saved entry. Consider exporting first.",
+      confirmLabel: "Delete everything"
+    });
+    if (!ok) return;
+
+    this.lockJournal({ skipSave: true });
+    this.pauseTimer();
+    this.tasks = [];
+    this.timetable = [];
+    this.notes = [];
+    this.events = [];
+    this.marks = [];
+    this.journalBlob = null;
+    this.focusMinutes = 0;
+    this.pomodoroSessions = 0;
+    this.activeDates = [];
+    this.focusLog = {};
+    this.timerTaskId = "";
+    this.cycleCount = 0;
+    this._journalLockMode = null;
+    this.persist();
+    this.closeModal(document.getElementById("settings-modal"));
+    this.renderAll();
+    this.showToast("All data cleared", "info");
+  }
+
+  // ===========================================================================
+  // Assignments
+  // ===========================================================================
+  setupTaskEvents() {
+    document.getElementById("task-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      this.saveTaskFromForm();
+    });
+
     document.getElementById("task-search-input")?.addEventListener("input", (e) => {
       this.taskSearch = e.target.value.toLowerCase().trim();
       this.renderTasks();
     });
 
-    document.getElementById("task-filter-status")?.addEventListener("change", (e) => {
-      this.taskStatusFilter = e.target.value;
+    document.getElementById("task-status-segmented")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-status]");
+      if (!btn) return;
+      this.taskStatusFilter = btn.dataset.status;
       this.renderTasks();
     });
 
@@ -940,80 +1608,122 @@ class StudyBuddyApp {
       this.renderTasks();
     });
 
-    // Clear completed
+    document.getElementById("task-sort-select")?.addEventListener("change", (e) => {
+      this.taskSort = e.target.value;
+      this.renderTasks();
+    });
+
+    // Quick add: type a title, press Enter, finish the details in the modal.
+    document.getElementById("task-quick-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const input = document.getElementById("task-quick-input");
+      const title = (input?.value || "").trim();
+      if (!title) return;
+      input.value = "";
+      this.openTaskModal(null, { title });
+    });
+
     document.getElementById("clear-completed-tasks-btn")?.addEventListener("click", () => {
-      const completedCount = this.tasks.filter(t => t.completed).length;
-      if (completedCount === 0) {
+      const completed = this.tasks.filter(t => t.completed);
+      if (completed.length === 0) {
         this.showToast("No completed assignments to clear", "info");
         return;
       }
-      if (confirm(`Remove ${completedCount} completed assignment(s)?`)) {
-        this.tasks = this.tasks.filter(t => !t.completed);
-        this.saveTasks();
-        this.renderAll();
-        this.showToast(`Removed ${completedCount} completed assignment(s)`, "info");
-      }
+      const before = this.tasks.slice();
+      this.tasks = this.tasks.filter(t => !t.completed);
+      this.schedulePersist();
+      this.renderAll();
+      this.showToast(`Cleared ${completed.length} completed assignment${completed.length === 1 ? "" : "s"}`, "info", {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            const restored = before.filter(t => t.completed && !this.tasks.some(x => x.id === t.id));
+            this.tasks = [...this.tasks, ...restored];
+            this.schedulePersist();
+            this.renderAll();
+          }
+        }
+      });
+    });
+
+    // One delegated listener handles every card action.
+    document.getElementById("task-cards-list")?.addEventListener("click", (e) => {
+      const card = e.target.closest(".task-card");
+      if (!card) return;
+      const id = card.dataset.taskId;
+      const action = e.target.closest("[data-action]")?.dataset.action;
+      if (action === "toggle") this.toggleTaskCompletion(id);
+      else if (action === "delete") this.deleteTask(id);
+      else if (action === "focus") this.focusOnTask(id);
+      else if (action === "edit") this.openTaskModal(this.tasks.find(t => t.id === id));
     });
   }
 
-  openTaskModal(task = null) {
+  openTaskModal(task = null, prefill = {}) {
     const modal = document.getElementById("task-modal");
     const form = document.getElementById("task-form");
     const titleEl = document.getElementById("task-modal-title");
+    if (!modal || !form) return;
 
     form.reset();
+    const setPriority = (value) => {
+      const radio = form.querySelector(`input[name="task-priority"][value="${value}"]`) ||
+        form.querySelector('input[name="task-priority"][value="medium"]');
+      if (radio) radio.checked = true;
+    };
 
+    let focusTarget = null;
     if (task) {
-      titleEl.textContent = "Edit Assignment";
+      titleEl.textContent = "Edit assignment";
       document.getElementById("task-id").value = task.id;
-      document.getElementById("task-title-input").value = task.title;
-      document.getElementById("task-subject-input").value = task.subject;
-      document.getElementById("task-priority-input").value = task.priority;
-      document.getElementById("task-due-date-input").value = task.dueDate;
+      document.getElementById("task-title-input").value = task.title || "";
+      document.getElementById("task-subject-input").value = task.subject || "";
+      setPriority(task.priority);
+      document.getElementById("task-due-date-input").value = task.dueDate || "";
       document.getElementById("task-estimated-time-input").value = task.estimatedTime || 45;
       document.getElementById("task-description-input").value = task.description || "";
+      document.getElementById("save-task-btn").textContent = "Save changes";
     } else {
-      titleEl.textContent = "Add New Assignment";
+      titleEl.textContent = "New assignment";
       document.getElementById("task-id").value = "";
-      // Default due date to tomorrow
-      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-      document.getElementById("task-due-date-input").value = tomorrow;
+      document.getElementById("task-title-input").value = prefill.title || "";
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      document.getElementById("task-due-date-input").value = prefill.dueDate || this.toDateKey(tomorrow);
+      setPriority(prefill.priority || "medium");
+      document.getElementById("save-task-btn").textContent = "Add assignment";
+      if (prefill.title) {
+        const subjectInput = document.getElementById("task-subject-input");
+        if (this._lastSubject) subjectInput.value = this._lastSubject;
+        focusTarget = subjectInput;
+      }
     }
 
-    this.openModal(modal);
+    this.openModal(modal, focusTarget);
+    if (focusTarget && focusTarget.value) focusTarget.select();
   }
 
   saveTaskFromForm() {
     const id = document.getElementById("task-id").value;
     const title = document.getElementById("task-title-input").value.trim();
     const subject = document.getElementById("task-subject-input").value.trim();
-    const priority = document.getElementById("task-priority-input").value;
+    const priority = document.querySelector('input[name="task-priority"]:checked')?.value || "medium";
     const dueDate = document.getElementById("task-due-date-input").value;
     const estimatedTime = parseInt(document.getElementById("task-estimated-time-input").value, 10) || 45;
     const description = document.getElementById("task-description-input").value.trim();
 
     if (!title || !subject || !dueDate) {
-      this.showToast("Please fill in all required fields", "alert");
+      this.showToast("Please fill in the title, subject and due date", "alert");
       return;
     }
 
     if (id) {
-      // Edit
       const index = this.tasks.findIndex(t => t.id === id);
       if (index !== -1) {
-        this.tasks[index] = {
-          ...this.tasks[index],
-          title,
-          subject,
-          priority,
-          dueDate,
-          estimatedTime,
-          description
-        };
-        this.showToast("Assignment updated successfully!");
+        this.tasks[index] = { ...this.tasks[index], title, subject, priority, dueDate, estimatedTime, description };
+        this.showToast("Assignment updated");
       }
     } else {
-      // Add new
       const newTask = {
         id: "task-" + Date.now(),
         title,
@@ -1026,10 +1736,13 @@ class StudyBuddyApp {
         createdAt: new Date().toISOString()
       };
       this.tasks.unshift(newTask);
-      this.showToast("Assignment added to your list!");
+      this._flashTaskId = newTask.id;
+      if (this.taskStatusFilter === "completed") this.taskStatusFilter = "pending";
+      this.showToast(`Added “${title}” — ${this.formatDueDateBadge(dueDate).text.toLowerCase()}`);
     }
 
-    this.saveTasks();
+    this._lastSubject = subject;
+    this.schedulePersist();
     this.recordActivity();
     this.closeModal(document.getElementById("task-modal"));
     this.renderAll();
@@ -1040,82 +1753,347 @@ class StudyBuddyApp {
     if (!task) return;
 
     task.completed = !task.completed;
-    this.saveTasks();
+    task.completedAt = task.completed ? new Date().toISOString() : null;
+    this.schedulePersist();
 
     if (task.completed) {
-      SoundFX.playSuccess();
-      ConfettiFX.launch();
-      this.showToast("Great job completing your assignment! 🎉");
+      this.playSound("success");
+      this.celebrate();
       this.recordActivity();
+      if (this.timerTaskId === id) this.timerTaskId = "";
+      this.showToast(`Done: ${task.title} 🎉`, "success", {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            task.completed = false;
+            task.completedAt = null;
+            this.schedulePersist();
+            this.renderAll();
+          }
+        }
+      });
     }
 
     this.renderAll();
   }
 
   deleteTask(id) {
+    this.removeWithUndo("tasks", id, "Assignment");
+  }
+
+  focusOnTask(id) {
     const task = this.tasks.find(t => t.id === id);
     if (!task) return;
+    this.timerTaskId = id;
+    if (this.timerMode !== "pomodoro") this.setTimerMode("pomodoro");
+    this.switchTab("progress");
+    if (!this.isTimerRunning) this.startTimer();
+    this.showToast(`Focusing on “${task.title}”`, "info");
+  }
 
-    if (confirm(`Are you sure you want to delete "${task.title}"?`)) {
-      this.tasks = this.tasks.filter(t => t.id !== id);
-      this.saveTasks();
-      this.renderAll();
-      this.showToast("Assignment removed", "info");
+  /** Days from today until a YYYY-MM-DD date (negative = past). */
+  daysUntil(dateKey) {
+    if (!dateKey) return null;
+    const [y, m, d] = String(dateKey).split("-").map(Number);
+    if (!y || !m || !d) return null;
+    const target = new Date(y, m - 1, d);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.round((target - today) / 86400000);
+  }
+
+  taskBucket(task) {
+    if (task.completed) return "completed";
+    const days = this.daysUntil(task.dueDate);
+    if (days === null) return "nodate";
+    if (days < 0) return "overdue";
+    if (days === 0) return "today";
+    if (days === 1) return "tomorrow";
+    if (days <= 7) return "week";
+    return "later";
+  }
+
+  compareByDue(a, b) {
+    const da = a.dueDate || "9999-99-99";
+    const db = b.dueDate || "9999-99-99";
+    if (da !== db) return da.localeCompare(db);
+    return (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1);
+  }
+
+  renderTasks() {
+    const container = document.getElementById("task-cards-list");
+    const emptyState = document.getElementById("tasks-empty-state");
+    const countLabel = document.getElementById("tasks-count-label");
+    if (!container) return;
+
+    const pendingCount = this.tasks.filter(t => !t.completed).length;
+    const doneCount = this.tasks.length - pendingCount;
+    document.querySelectorAll("#task-status-segmented [data-status]").forEach(btn => {
+      const status = btn.dataset.status;
+      btn.classList.toggle("active", status === this.taskStatusFilter);
+      const n = status === "pending" ? pendingCount : status === "completed" ? doneCount : this.tasks.length;
+      const label = status === "pending" ? "To do" : status === "completed" ? "Done" : "All";
+      btn.innerHTML = `${label} <span class="seg-count">${n}</span>`;
+    });
+
+    const search = this.taskSearch;
+    const filtered = this.tasks.filter(t => {
+      const matchSearch = !search ||
+        (t.title || "").toLowerCase().includes(search) ||
+        (t.subject || "").toLowerCase().includes(search) ||
+        (t.description || "").toLowerCase().includes(search);
+      const matchStatus = this.taskStatusFilter === "all" ? true
+        : this.taskStatusFilter === "completed" ? t.completed : !t.completed;
+      const matchPriority = this.taskPriorityFilter === "all" || t.priority === this.taskPriorityFilter;
+      const matchSubject = this.taskSubjectFilter === "all" || t.subject === this.taskSubjectFilter;
+      return matchSearch && matchStatus && matchPriority && matchSubject;
+    });
+
+    const filtersActive = Boolean(search) || this.taskPriorityFilter !== "all" || this.taskSubjectFilter !== "all";
+    if (countLabel) {
+      countLabel.textContent = `${filtered.length} assignment${filtered.length === 1 ? "" : "s"}${filtersActive ? " match your filters" : ""}`;
+    }
+
+    if (filtered.length === 0) {
+      container.innerHTML = "";
+      const titleEl = document.getElementById("tasks-empty-title");
+      const textEl = document.getElementById("tasks-empty-text");
+      if (this.tasks.length === 0) {
+        titleEl.textContent = "No assignments yet";
+        textEl.textContent = "Add your first assignment — StudyBuddy groups everything by when it's due.";
+      } else if (filtersActive) {
+        titleEl.textContent = "No matches";
+        textEl.textContent = "Nothing matches your search or filters. Try clearing them.";
+      } else if (this.taskStatusFilter === "pending") {
+        titleEl.textContent = "All caught up 🎉";
+        textEl.textContent = "Every assignment is done. Enjoy the free time — or get ahead on the next one.";
+      } else {
+        titleEl.textContent = "Nothing here yet";
+        textEl.textContent = "Completed assignments will show up here.";
+      }
+      emptyState?.classList.remove("hidden");
+      return;
+    }
+    emptyState?.classList.add("hidden");
+
+    let groups;
+    if (this.taskSort === "due") {
+      const defs = [
+        { key: "overdue", label: "Overdue", icon: "fa-solid fa-triangle-exclamation" },
+        { key: "today", label: "Due today", icon: "fa-solid fa-sun" },
+        { key: "tomorrow", label: "Tomorrow", icon: "fa-regular fa-calendar" },
+        { key: "week", label: "Next 7 days", icon: "fa-regular fa-calendar-days" },
+        { key: "later", label: "Later", icon: "fa-regular fa-clock" },
+        { key: "nodate", label: "No due date", icon: "fa-regular fa-circle" },
+        { key: "completed", label: "Completed", icon: "fa-solid fa-circle-check" }
+      ];
+      groups = defs.map(def => ({
+        ...def,
+        items: filtered.filter(t => this.taskBucket(t) === def.key).sort((a, b) => {
+          if (def.key === "completed") return String(b.completedAt || "").localeCompare(String(a.completedAt || ""));
+          return this.compareByDue(a, b);
+        })
+      })).filter(g => g.items.length);
+    } else {
+      const sorted = filtered.slice().sort((a, b) => {
+        if (this.taskSort === "priority") {
+          const r = (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1);
+          return r !== 0 ? r : this.compareByDue(a, b);
+        }
+        return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+      });
+      groups = [{ key: "all", label: null, items: sorted }];
+    }
+
+    container.innerHTML = groups.map(group => `
+      <section class="task-group is-${group.key}">
+        ${group.label ? `
+          <h4 class="task-group-header">
+            <i class="${group.icon}"></i> ${group.label}
+            <span class="task-group-count">${group.items.length}</span>
+          </h4>` : ""}
+        <div class="task-group-list">
+          ${group.items.map(task => this.renderTaskCard(task)).join("")}
+        </div>
+      </section>
+    `).join("");
+
+    if (this._flashTaskId) {
+      const el = container.querySelector(`[data-task-id="${CSS.escape(this._flashTaskId)}"]`);
+      el?.classList.add("flash");
+      this._flashTaskId = null;
     }
   }
 
-  saveTasks() {
-    this.schedulePersist();
+  renderTaskCard(task) {
+    const due = this.formatDueDateBadge(task.dueDate);
+    const priority = PRIORITY_RANK[task.priority] !== undefined ? task.priority : "medium";
+    const focused = Number(task.focusMinutes) || 0;
+    const dueClass = task.completed ? "" : due.isOverdue ? "overdue" : due.isToday ? "is-today" : "";
+    return `
+      <div class="task-card ${task.completed ? "completed" : ""}" data-task-id="${this.escapeHTML(task.id)}">
+        <button type="button" class="check p-${priority} ${task.completed ? "checked" : ""}" data-action="toggle"
+          aria-label="${task.completed ? "Mark as not done" : "Mark as done"}" aria-pressed="${task.completed}">
+          <i class="fa-solid fa-check"></i>
+        </button>
+        <div class="task-main" data-action="edit">
+          <div class="task-title">${this.escapeHTML(task.title)}</div>
+          ${task.description ? `<p class="task-details">${this.escapeHTML(task.description)}</p>` : ""}
+          <div class="task-meta-bar">
+            <span class="chip" style="--subj: ${this.subjectColor(task.subject)}">${this.escapeHTML(task.subject || "General")}</span>
+            <span class="task-meta-item ${dueClass}"><i class="fa-regular fa-calendar"></i> ${this.escapeHTML(due.text)}</span>
+            ${!task.completed ? `<span class="priority-flag p-${priority}"><i class="fa-${priority === "low" ? "regular" : "solid"} fa-flag"></i> ${priority[0].toUpperCase() + priority.slice(1)}</span>` : ""}
+            <span class="task-meta-item"><i class="fa-regular fa-clock"></i> ~${this.formatMinutes(Number(task.estimatedTime) || 45)}</span>
+            ${focused ? `<span class="task-meta-item"><i class="fa-solid fa-stopwatch"></i> ${this.formatMinutes(focused)} focused</span>` : ""}
+          </div>
+        </div>
+        <div class="task-actions">
+          ${!task.completed ? `<button type="button" class="icon-btn icon-btn-sm" data-action="focus" title="Start a focus session on this" aria-label="Focus on this"><i class="fa-solid fa-play"></i></button>` : ""}
+          <button type="button" class="icon-btn icon-btn-sm" data-action="edit" title="Edit" aria-label="Edit"><i class="fa-solid fa-pen"></i></button>
+          <button type="button" class="icon-btn icon-btn-sm icon-btn-danger" data-action="delete" title="Delete" aria-label="Delete"><i class="fa-regular fa-trash-can"></i></button>
+        </div>
+      </div>
+    `;
   }
 
   // ===========================================================================
-  // 7. Study Timetable Management
+  // Timetable
   // ===========================================================================
+  todayName() {
+    return WEEKDAYS[(new Date().getDay() + 6) % 7];
+  }
+
+  /** Date key of the given weekday in the current (Monday-first) week. */
+  dateKeyForWeekday(dayName) {
+    const idx = WEEKDAYS.indexOf(dayName);
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    const todayIdx = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() + ((idx === -1 ? todayIdx : idx) - todayIdx));
+    return this.toDateKey(d);
+  }
+
+  currentWeekDates() {
+    return WEEKDAYS.map(day => this.dateKeyForWeekday(day));
+  }
+
+  /**
+   * Slots repeat weekly, so "done" is tracked per date rather than as one
+   * permanent flag (the old `completed: true` stayed ticked forever).
+   */
+  normalizeSlot(slot) {
+    if (!slot || typeof slot !== "object") return slot;
+    if (!Array.isArray(slot.doneDates)) {
+      slot.doneDates = slot.completed ? [this.dateKeyForWeekday(slot.day)] : [];
+    }
+    if ("completed" in slot) delete slot.completed;
+    // Keep the list short — only recent weeks matter.
+    if (slot.doneDates.length > 30) slot.doneDates = slot.doneDates.slice(-30);
+    return slot;
+  }
+
+  isSlotDone(slot) {
+    return Array.isArray(slot.doneDates) && slot.doneDates.includes(this.dateKeyForWeekday(slot.day));
+  }
+
+  isSlotNow(slot) {
+    if (slot.day !== this.todayName()) return false;
+    const now = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    const [sh, sm] = String(slot.startTime || "0:0").split(":").map(Number);
+    const [eh, em] = String(slot.endTime || "0:0").split(":").map(Number);
+    return mins >= sh * 60 + sm && mins < eh * 60 + em;
+  }
+
+  setTimetableView(view) {
+    this.timetableView = view === "week" ? "week" : "day";
+    document.getElementById("tab-timetable")?.classList.toggle("view-week", this.timetableView === "week");
+    document.querySelectorAll("#tt-view-toggle [data-view]").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.view === this.timetableView);
+    });
+    this.renderTimetable();
+  }
+
   setupTimetableEvents() {
-    // Day chips navigation
-    const dayChips = document.querySelectorAll(".day-chip");
-    dayChips.forEach(chip => {
-      chip.addEventListener("click", () => {
-        dayChips.forEach(c => c.classList.remove("active"));
-        chip.classList.add("active");
-        this.selectedDay = chip.dataset.day;
-        this.renderTimetable();
-      });
+    document.getElementById("days-nav")?.addEventListener("click", (e) => {
+      const chip = e.target.closest(".day-chip");
+      if (!chip) return;
+      this.selectedDay = chip.dataset.day;
+      this.renderTimetable();
     });
 
-    // Form Submission
+    document.getElementById("tt-view-toggle")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-view]");
+      if (btn) this.setTimetableView(btn.dataset.view);
+    });
+
     document.getElementById("timetable-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
       this.saveTimetableFromForm();
     });
+
+    document.getElementById("timetable-slots-list")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const id = btn.dataset.slotId;
+      const slot = this.timetable.find(s => s.id === id);
+      if (!slot) return;
+      if (btn.dataset.action === "toggle") this.toggleTimetableSlotComplete(id);
+      else if (btn.dataset.action === "edit") this.openTimetableModal(slot);
+      else if (btn.dataset.action === "duplicate") this.openTimetableModal(null, { ...slot, title: slot.title });
+      else if (btn.dataset.action === "delete") this.deleteTimetableSlot(id);
+    });
+
+    document.getElementById("timetable-week-view")?.addEventListener("click", (e) => {
+      const slotBtn = e.target.closest("[data-slot-id]");
+      if (slotBtn) {
+        const slot = this.timetable.find(s => s.id === slotBtn.dataset.slotId);
+        if (slot) this.openTimetableModal(slot);
+        return;
+      }
+      const addBtn = e.target.closest("[data-add-day]");
+      if (addBtn) {
+        this.openTimetableModal(null, { day: addBtn.dataset.addDay });
+        return;
+      }
+      const dayBtn = e.target.closest("[data-open-day]");
+      if (dayBtn) {
+        this.selectedDay = dayBtn.dataset.openDay;
+        this.setTimetableView("day");
+      }
+    });
   }
 
-  openTimetableModal(slot = null) {
+  openTimetableModal(slot = null, prefill = null) {
     const modal = document.getElementById("timetable-modal");
     const form = document.getElementById("timetable-form");
     const titleEl = document.getElementById("timetable-modal-title");
+    if (!modal || !form) return;
 
     form.reset();
 
+    const source = slot || prefill;
     if (slot) {
-      titleEl.textContent = "Edit Study Slot";
+      titleEl.textContent = "Edit study slot";
       document.getElementById("slot-id").value = slot.id;
-      document.getElementById("slot-day-select").value = slot.day;
-      document.getElementById("slot-title-input").value = slot.title;
-      document.getElementById("slot-subject-input").value = slot.subject;
-      document.getElementById("slot-type-select").value = slot.type;
-      document.getElementById("slot-start-time").value = slot.startTime;
-      document.getElementById("slot-end-time").value = slot.endTime;
-      document.getElementById("slot-location-input").value = slot.location || "";
+      document.getElementById("save-timetable-btn").textContent = "Save changes";
     } else {
-      titleEl.textContent = "Add Study Slot";
+      titleEl.textContent = prefill && prefill.id ? "Duplicate slot" : "Add study slot";
       document.getElementById("slot-id").value = "";
-      document.getElementById("slot-day-select").value = this.selectedDay;
-      document.getElementById("slot-start-time").value = "10:00";
-      document.getElementById("slot-end-time").value = "11:30";
+      document.getElementById("save-timetable-btn").textContent = "Add slot";
     }
 
-    this.openModal(modal);
+    document.getElementById("slot-day-select").value = (source && source.day) || this.selectedDay;
+    document.getElementById("slot-title-input").value = (source && source.title) || "";
+    document.getElementById("slot-subject-input").value = (source && source.subject) || "";
+    document.getElementById("slot-type-select").value = (source && source.type) || "Lecture";
+    document.getElementById("slot-start-time").value = (source && source.startTime) || "10:00";
+    document.getElementById("slot-end-time").value = (source && source.endTime) || "11:30";
+    document.getElementById("slot-location-input").value = (source && source.location) || "";
+
+    // A duplicate usually goes on another day — start there.
+    const focus = prefill && prefill.id ? document.getElementById("slot-day-select") : null;
+    this.openModal(modal, focus);
   }
 
   saveTimetableFromForm() {
@@ -1132,80 +2110,170 @@ class StudyBuddyApp {
       this.showToast("Please fill in all required fields", "alert");
       return;
     }
+    if (startTime >= endTime) {
+      this.showToast("The end time must be after the start time", "alert");
+      return;
+    }
 
     if (id) {
       const index = this.timetable.findIndex(s => s.id === id);
       if (index !== -1) {
-        this.timetable[index] = {
-          ...this.timetable[index],
-          day,
-          title,
-          subject,
-          type,
-          startTime,
-          endTime,
-          location
-        };
-        this.showToast("Schedule updated!");
+        this.timetable[index] = { ...this.timetable[index], day, title, subject, type, startTime, endTime, location };
+        this.showToast("Timetable updated");
       }
     } else {
-      const newSlot = {
+      this.timetable.push({
         id: "slot-" + Date.now(),
-        day,
-        title,
-        subject,
-        type,
-        startTime,
-        endTime,
-        location,
-        completed: false
-      };
-      this.timetable.push(newSlot);
-      this.showToast("Study slot added to timetable!");
+        day, title, subject, type, startTime, endTime, location,
+        doneDates: []
+      });
+      this.showToast(`Added to ${day}s`);
     }
 
-    // Automatically switch day view to the saved day
     this.selectedDay = day;
-    document.querySelectorAll(".day-chip").forEach(c => {
-      c.classList.toggle("active", c.dataset.day === day);
-    });
-
-    this.saveTimetable();
+    this.schedulePersist();
     this.closeModal(document.getElementById("timetable-modal"));
     this.renderAll();
   }
 
   deleteTimetableSlot(id) {
-    const slot = this.timetable.find(s => s.id === id);
-    if (!slot) return;
-
-    if (confirm(`Delete session "${slot.title}"?`)) {
-      this.timetable = this.timetable.filter(s => s.id !== id);
-      this.saveTimetable();
-      this.renderAll();
-      this.showToast("Study slot deleted", "info");
-    }
+    this.removeWithUndo("timetable", id, "Study slot");
   }
 
   toggleTimetableSlotComplete(id) {
     const slot = this.timetable.find(s => s.id === id);
     if (!slot) return;
-    slot.completed = !slot.completed;
-    this.saveTimetable();
-    if (slot.completed) {
-      SoundFX.playSuccess();
-      this.showToast("Session marked as attended / completed!");
+    this.normalizeSlot(slot);
+    const key = this.dateKeyForWeekday(slot.day);
+    if (slot.doneDates.includes(key)) {
+      slot.doneDates = slot.doneDates.filter(d => d !== key);
+    } else {
+      slot.doneDates.push(key);
+      this.playSound("success");
+      this.showToast("Session marked as done");
       this.recordActivity();
     }
+    this.schedulePersist();
     this.renderAll();
   }
 
-  saveTimetable() {
-    this.schedulePersist();
+  slotMinutes(slot) {
+    const [sh, sm] = String(slot.startTime || "0:0").split(":").map(Number);
+    const [eh, em] = String(slot.endTime || "0:0").split(":").map(Number);
+    let diff = (eh * 60 + em) - (sh * 60 + sm);
+    if (diff < 0) diff += 24 * 60;
+    return diff;
+  }
+
+  renderTimetable() {
+    const today = this.todayName();
+    const byDay = {};
+    WEEKDAYS.forEach(d => { byDay[d] = []; });
+    this.timetable.forEach(s => { if (byDay[s.day]) byDay[s.day].push(s); });
+    Object.values(byDay).forEach(list => list.sort((a, b) => String(a.startTime).localeCompare(String(b.startTime))));
+
+    // Day chips
+    document.querySelectorAll("#days-nav .day-chip").forEach(chip => {
+      const day = chip.dataset.day;
+      chip.classList.toggle("active", day === this.selectedDay);
+      chip.classList.toggle("is-today", day === today);
+      const n = byDay[day]?.length || 0;
+      chip.innerHTML = `${day.slice(0, 3)}${n ? `<span class="day-chip-count">${n}</span>` : ""}`;
+      chip.setAttribute("aria-label", `${day}${day === today ? " (today)" : ""}, ${n} session${n === 1 ? "" : "s"}`);
+    });
+
+    const dayView = document.getElementById("timetable-day-view");
+    const weekView = document.getElementById("timetable-week-view");
+    document.getElementById("tab-timetable")?.classList.toggle("view-week", this.timetableView === "week");
+    dayView?.classList.toggle("hidden", this.timetableView === "week");
+    weekView?.classList.toggle("hidden", this.timetableView !== "week");
+
+    if (this.timetableView === "week") {
+      this.renderTimetableWeek(byDay, today);
+      return;
+    }
+
+    const container = document.getElementById("timetable-slots-list");
+    const emptyState = document.getElementById("timetable-empty-state");
+    const dayTitle = document.getElementById("current-selected-day-title");
+    const dayCount = document.getElementById("day-slot-count");
+    if (!container) return;
+
+    const daySlots = byDay[this.selectedDay] || [];
+    if (dayTitle) dayTitle.textContent = this.selectedDay === today ? `${this.selectedDay} · Today` : this.selectedDay;
+    if (dayCount) {
+      const total = daySlots.reduce((sum, s) => sum + this.slotMinutes(s), 0);
+      dayCount.textContent = daySlots.length
+        ? `${daySlots.length} session${daySlots.length === 1 ? "" : "s"} · ${this.formatMinutes(total)} planned`
+        : "No sessions";
+    }
+
+    if (daySlots.length === 0) {
+      container.innerHTML = "";
+      emptyState?.classList.remove("hidden");
+      return;
+    }
+    emptyState?.classList.add("hidden");
+
+    container.innerHTML = daySlots.map(slot => {
+      const done = this.isSlotDone(slot);
+      const now = this.isSlotNow(slot);
+      const id = this.escapeHTML(slot.id);
+      return `
+        <div class="schedule-card ${done ? "is-done" : ""} ${now ? "is-now" : ""}" style="--subj: ${this.subjectColor(slot.subject)}">
+          <div class="schedule-time-block">
+            <span class="time-range">${this.formatHM(slot.startTime)}</span>
+            <span class="time-end">to ${this.formatHM(slot.endTime)}</span>
+            <span class="time-duration">${this.calculateDuration(slot.startTime, slot.endTime)}</span>
+          </div>
+          <div class="schedule-content">
+            <div class="schedule-tags">
+              ${now ? '<span class="badge badge-success"><i class="fa-solid fa-circle"></i> Now</span>' : ""}
+              <span class="chip" style="--subj: ${this.subjectColor(slot.subject)}">${this.escapeHTML(slot.subject)}</span>
+              <span class="chip chip-plain">${this.escapeHTML(slot.type)}</span>
+            </div>
+            <div class="schedule-title">${this.escapeHTML(slot.title)}</div>
+            ${slot.location ? `<div class="schedule-location"><i class="fa-solid fa-location-dot"></i> ${this.linkifyLocation(slot.location)}</div>` : ""}
+          </div>
+          <div class="schedule-actions">
+            <button type="button" class="btn btn-sm ${done ? "is-done" : "btn-outline"}" data-slot-id="${id}" data-action="toggle" aria-pressed="${done}">
+              <i class="fa-solid fa-check"></i> <span>${done ? "Done" : "Mark done"}</span>
+            </button>
+            <button type="button" class="icon-btn icon-btn-sm" data-slot-id="${id}" data-action="duplicate" title="Duplicate to another day" aria-label="Duplicate"><i class="fa-regular fa-copy"></i></button>
+            <button type="button" class="icon-btn icon-btn-sm" data-slot-id="${id}" data-action="edit" title="Edit" aria-label="Edit"><i class="fa-solid fa-pen"></i></button>
+            <button type="button" class="icon-btn icon-btn-sm icon-btn-danger" data-slot-id="${id}" data-action="delete" title="Delete" aria-label="Delete"><i class="fa-regular fa-trash-can"></i></button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  renderTimetableWeek(byDay, today) {
+    const container = document.getElementById("timetable-week-view");
+    if (!container) return;
+    container.innerHTML = WEEKDAYS.map(day => {
+      const slots = byDay[day] || [];
+      const total = slots.reduce((sum, s) => sum + this.slotMinutes(s), 0);
+      return `
+        <div class="week-col ${day === today ? "is-today" : ""}">
+          <div class="week-col-header">
+            <button type="button" data-open-day="${day}" title="Open ${day}">${day.slice(0, 3)}</button>
+            <span>${slots.length ? this.formatMinutes(total) : ""}</span>
+          </div>
+          ${slots.length ? slots.map(slot => `
+            <button type="button" class="week-slot ${this.isSlotDone(slot) ? "is-done" : ""}" data-slot-id="${this.escapeHTML(slot.id)}" style="--subj: ${this.subjectColor(slot.subject)}">
+              <span class="week-slot-time">${this.formatHM(slot.startTime)}</span>
+              <span class="week-slot-title">${this.escapeHTML(slot.title)}</span>
+            </button>
+          `).join("") : '<div class="week-col-empty">Free</div>'}
+          <button type="button" class="week-col-add" data-add-day="${day}" aria-label="Add a slot on ${day}"><i class="fa-solid fa-plus"></i></button>
+        </div>
+      `;
+    }).join("");
   }
 
   // ===========================================================================
-  // 8. Notes Section Management
+  // Notes
   // ===========================================================================
   setupNoteEvents() {
     document.getElementById("note-form")?.addEventListener("submit", (e) => {
@@ -1222,25 +2290,55 @@ class StudyBuddyApp {
       this.noteSubjectFilter = e.target.value;
       this.renderNotes();
     });
+
+    const grid = document.getElementById("notes-grid");
+    grid?.addEventListener("click", (e) => {
+      const card = e.target.closest(".note-card");
+      if (!card) return;
+      const id = card.dataset.noteId;
+      const action = e.target.closest("[data-action]")?.dataset.action;
+      if (action === "pin") this.toggleNotePin(id);
+      else if (action === "delete") this.deleteNote(id);
+      else {
+        const note = this.notes.find(n => n.id === id);
+        if (note) this.openNoteModal(note);
+      }
+    });
+    grid?.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || !e.target.classList?.contains("note-card")) return;
+      const note = this.notes.find(n => n.id === e.target.dataset.noteId);
+      if (note) this.openNoteModal(note);
+    });
   }
 
   openNoteModal(note = null) {
     const modal = document.getElementById("note-modal");
     const form = document.getElementById("note-form");
     const titleEl = document.getElementById("note-modal-title");
+    if (!modal || !form) return;
 
     form.reset();
+    const setColor = (color) => {
+      const radio = form.querySelector(`input[name="note-color"][value="${color}"]`) ||
+        form.querySelector('input[name="note-color"][value="sky"]');
+      if (radio) radio.checked = true;
+    };
 
     if (note) {
-      titleEl.textContent = "Edit Study Note";
+      titleEl.textContent = "Edit note";
       document.getElementById("note-id").value = note.id;
-      document.getElementById("note-title-input").value = note.title;
-      document.getElementById("note-subject-input").value = note.subject;
-      document.getElementById("note-color-select").value = note.color;
-      document.getElementById("note-content-input").value = note.content;
+      document.getElementById("note-title-input").value = note.title || "";
+      document.getElementById("note-subject-input").value = note.subject || "";
+      document.getElementById("note-content-input").value = note.content || "";
+      document.getElementById("note-pinned-input").checked = Boolean(note.pinned);
+      setColor(note.color || "sky");
+      document.getElementById("save-note-btn").textContent = "Save changes";
     } else {
-      titleEl.textContent = "New Study Note";
+      titleEl.textContent = "New note";
       document.getElementById("note-id").value = "";
+      if (this.noteSubjectFilter !== "all") document.getElementById("note-subject-input").value = this.noteSubjectFilter;
+      setColor("sky");
+      document.getElementById("save-note-btn").textContent = "Save note";
     }
 
     this.openModal(modal);
@@ -1250,217 +2348,388 @@ class StudyBuddyApp {
     const id = document.getElementById("note-id").value;
     const title = document.getElementById("note-title-input").value.trim();
     const subject = document.getElementById("note-subject-input").value.trim();
-    const color = document.getElementById("note-color-select").value;
+    const color = document.querySelector('input[name="note-color"]:checked')?.value || "sky";
     const content = document.getElementById("note-content-input").value.trim();
+    const pinned = Boolean(document.getElementById("note-pinned-input")?.checked);
 
     if (!title || !content || !subject) {
-      this.showToast("Please fill in note title, subject, and content", "alert");
+      this.showToast("Please fill in the title, subject and content", "alert");
       return;
     }
 
-    const todayStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const now = new Date();
+    const updatedAt = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const updatedAtISO = now.toISOString();
 
     if (id) {
       const idx = this.notes.findIndex(n => n.id === id);
       if (idx !== -1) {
-        this.notes[idx] = {
-          ...this.notes[idx],
-          title,
-          subject,
-          color,
-          content,
-          updatedAt: todayStr
-        };
-        this.showToast("Note updated!");
+        this.notes[idx] = { ...this.notes[idx], title, subject, color, content, pinned, updatedAt, updatedAtISO };
+        this.showToast("Note updated");
       }
     } else {
-      const newNote = {
-        id: "note-" + Date.now(),
-        title,
-        subject,
-        color,
-        content,
-        updatedAt: todayStr
-      };
-      this.notes.unshift(newNote);
-      this.showToast("New note created!");
+      this.notes.unshift({ id: "note-" + Date.now(), title, subject, color, content, pinned, updatedAt, updatedAtISO });
+      this.showToast("Note created");
     }
 
-    this.saveNotes();
+    this.schedulePersist();
     this.recordActivity();
     this.closeModal(document.getElementById("note-modal"));
     this.renderAll();
   }
 
-  deleteNote(id) {
+  toggleNotePin(id) {
     const note = this.notes.find(n => n.id === id);
     if (!note) return;
-
-    if (confirm(`Delete note "${note.title}"?`)) {
-      this.notes = this.notes.filter(n => n.id !== id);
-      this.saveNotes();
-      this.renderAll();
-      this.showToast("Note deleted", "info");
-    }
-  }
-
-  saveNotes() {
+    note.pinned = !note.pinned;
     this.schedulePersist();
+    this.renderAll();
+    this.showToast(note.pinned ? "Pinned to the top" : "Unpinned", "info");
   }
 
-  // ===========================================================================
-  // 9. Pomodoro Focus Timer
-  // ===========================================================================
-  setupPomodoroEvents() {
-    const toggleBtn = document.getElementById("timer-toggle-btn");
-    const resetBtn = document.getElementById("timer-reset-btn");
-    const skipBtn = document.getElementById("timer-skip-btn");
-    const modeButtons = document.querySelectorAll(".mode-btn");
+  deleteNote(id) {
+    this.removeWithUndo("notes", id, "Note");
+  }
 
-    // Sidebar controls
-    const sidebarStartBtn = document.getElementById("sidebar-timer-start-btn");
-    const sidebarResetBtn = document.getElementById("sidebar-timer-reset-btn");
+  /** Lightweight, safe formatting: "- " bullets, "# " headings, **bold**, `code`. */
+  renderNoteBody(content) {
+    const inline = (text) => this.escapeHTML(text)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+?)`/g, "<code>$1</code>");
+    const lines = String(content || "").split(/\r?\n/);
+    let html = "";
+    let inList = false;
+    let para = [];
+    const flushPara = () => {
+      if (para.length) html += `<p>${para.map(inline).join("<br>")}</p>`;
+      para = [];
+    };
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      const bullet = trimmed.match(/^([-*•])\s+(.*)$/);
+      if (bullet) {
+        flushPara();
+        if (!inList) { html += "<ul>"; inList = true; }
+        html += `<li>${inline(bullet[2])}</li>`;
+        return;
+      }
+      if (inList) { html += "</ul>"; inList = false; }
+      const heading = trimmed.match(/^#{1,3}\s+(.*)$/);
+      if (heading) {
+        flushPara();
+        html += `<h4>${inline(heading[1])}</h4>`;
+      } else if (!trimmed) {
+        flushPara();
+      } else {
+        para.push(trimmed);
+      }
+    });
+    if (inList) html += "</ul>";
+    flushPara();
+    return html;
+  }
 
-    toggleBtn?.addEventListener("click", () => this.toggleTimer());
-    sidebarStartBtn?.addEventListener("click", () => this.toggleTimer());
+  renderNotes() {
+    const container = document.getElementById("notes-grid");
+    const emptyState = document.getElementById("notes-empty-state");
+    if (!container) return;
 
-    resetBtn?.addEventListener("click", () => this.resetTimer());
-    sidebarResetBtn?.addEventListener("click", () => this.resetTimer());
-
-    skipBtn?.addEventListener("click", () => this.skipTimer());
-
-    modeButtons.forEach(btn => {
-      btn.addEventListener("click", () => {
-        const mode = btn.dataset.mode;
-        this.setTimerMode(mode);
-      });
+    const search = this.noteSearch;
+    const filtered = this.notes.filter(note => {
+      const matchSearch = !search ||
+        (note.title || "").toLowerCase().includes(search) ||
+        (note.content || "").toLowerCase().includes(search) ||
+        (note.subject || "").toLowerCase().includes(search);
+      const matchSubject = this.noteSubjectFilter === "all" || note.subject === this.noteSubjectFilter;
+      return matchSearch && matchSubject;
     });
 
+    if (filtered.length === 0) {
+      container.innerHTML = "";
+      const titleEl = document.getElementById("notes-empty-title");
+      const textEl = document.getElementById("notes-empty-text");
+      if (this.notes.length === 0) {
+        titleEl.textContent = "No notes yet";
+        textEl.textContent = "Capture formulas, definitions and lecture takeaways here.";
+      } else {
+        titleEl.textContent = "No matching notes";
+        textEl.textContent = "Try a different search or subject filter.";
+      }
+      emptyState?.classList.remove("hidden");
+      return;
+    }
+    emptyState?.classList.add("hidden");
+
+    // Most recently edited first; legacy notes (no timestamp) keep their order.
+    const ordered = filtered
+      .map((note, index) => ({ note, index }))
+      .sort((a, b) => {
+        const ta = a.note.updatedAtISO || "";
+        const tb = b.note.updatedAtISO || "";
+        if (ta !== tb) return tb.localeCompare(ta);
+        return a.index - b.index;
+      })
+      .map(x => x.note);
+    const pinned = ordered.filter(n => n.pinned);
+    const others = ordered.filter(n => !n.pinned);
+
+    const renderCard = (note) => {
+      const accent = ["sky", "emerald", "purple", "amber", "rose"].includes(note.color) ? note.color : "sky";
+      const long = String(note.content || "").length > 520 || String(note.content || "").split("\n").length > 14;
+      return `
+        <article class="note-card accent-${accent}" data-note-id="${this.escapeHTML(note.id)}" tabindex="0" aria-label="${this.escapeHTML(note.title)}">
+          <div class="note-header">
+            <h3 class="note-title">${this.escapeHTML(note.title)}</h3>
+            <button type="button" class="icon-btn icon-btn-sm note-pin ${note.pinned ? "is-pinned" : ""}" data-action="pin"
+              title="${note.pinned ? "Unpin" : "Pin to top"}" aria-label="${note.pinned ? "Unpin" : "Pin to top"}" aria-pressed="${Boolean(note.pinned)}">
+              <i class="fa-solid fa-thumbtack"></i>
+            </button>
+          </div>
+          <div class="note-subject"><span class="chip" style="--subj: ${this.subjectColor(note.subject)}">${this.escapeHTML(note.subject)}</span></div>
+          <div class="note-body ${long ? "is-clamped" : ""}">${this.renderNoteBody(note.content)}</div>
+          <div class="note-footer">
+            <span><i class="fa-regular fa-clock"></i> ${this.escapeHTML(note.updatedAt || "Recently")}</span>
+            <div class="note-actions">
+              <button type="button" class="icon-btn icon-btn-sm" data-action="edit" title="Edit" aria-label="Edit"><i class="fa-solid fa-pen"></i></button>
+              <button type="button" class="icon-btn icon-btn-sm icon-btn-danger" data-action="delete" title="Delete" aria-label="Delete"><i class="fa-regular fa-trash-can"></i></button>
+            </div>
+          </div>
+        </article>
+      `;
+    };
+
+    let html = "";
+    if (pinned.length) {
+      html += `<div class="notes-section-label"><i class="fa-solid fa-thumbtack"></i> Pinned</div>`;
+      html += `<div class="notes-masonry">${pinned.map(renderCard).join("")}</div>`;
+      if (others.length) html += `<div class="notes-section-label">Other notes</div>`;
+    }
+    if (others.length) html += `<div class="notes-masonry">${others.map(renderCard).join("")}</div>`;
+    container.innerHTML = html;
+  }
+
+  // ===========================================================================
+  // Pomodoro Focus Timer
+  // ===========================================================================
+  modeSeconds(mode) {
+    const s = this.settings || DEFAULT_SETTINGS;
+    const minutes = mode === "shortBreak" ? s.shortMin : mode === "longBreak" ? s.longMin : s.focusMin;
+    return Math.max(1, Number(minutes) || 1) * 60;
+  }
+
+  setupPomodoroEvents() {
+    document.getElementById("timer-toggle-btn")?.addEventListener("click", () => this.toggleTimer());
+    document.getElementById("sidebar-timer-start-btn")?.addEventListener("click", () => this.toggleTimer());
+    document.getElementById("timer-reset-btn")?.addEventListener("click", () => this.resetTimer());
+    document.getElementById("sidebar-timer-reset-btn")?.addEventListener("click", () => this.resetTimer());
+    document.getElementById("timer-skip-btn")?.addEventListener("click", () => this.skipTimer());
+
+    document.querySelectorAll(".mode-btn").forEach(btn => {
+      btn.addEventListener("click", () => this.setTimerMode(btn.dataset.mode));
+    });
+
+    document.getElementById("timer-task-select")?.addEventListener("change", (e) => {
+      this.timerTaskId = e.target.value;
+      this.renderTimerMeta();
+    });
+
+    // Catch up immediately when the tab becomes visible again.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && this.isTimerRunning) this.tickTimer();
+    });
+
+    this.renderTimerMeta();
     this.updateTimerDisplay();
   }
 
   setTimerMode(mode) {
-    this.timerMode = mode;
+    if (!["pomodoro", "shortBreak", "longBreak"].includes(mode)) return;
     this.pauseTimer();
-    this.timeLeft = this.timerDurations[mode];
-
-    document.querySelectorAll(".mode-btn").forEach(btn => {
-      btn.classList.toggle("active", btn.dataset.mode === mode);
-    });
-
-    const statusLabel = document.getElementById("timer-status-text");
-    const sidebarTag = document.getElementById("sidebar-timer-mode");
-
-    if (mode === "pomodoro") {
-      if (statusLabel) statusLabel.textContent = "Ready to focus";
-      if (sidebarTag) sidebarTag.textContent = "Focus";
-    } else if (mode === "shortBreak") {
-      if (statusLabel) statusLabel.textContent = "Take a short break";
-      if (sidebarTag) sidebarTag.textContent = "Break";
-    } else {
-      if (statusLabel) statusLabel.textContent = "Recharge with a long break";
-      if (sidebarTag) sidebarTag.textContent = "Rest";
-    }
-
+    this.timerMode = mode;
+    this.timeLeft = this.modeSeconds(mode);
+    this.renderTimerMeta();
     this.updateTimerDisplay();
   }
 
   toggleTimer() {
-    if (this.isTimerRunning) {
-      this.pauseTimer();
-    } else {
-      this.startTimer();
-    }
+    if (this.isTimerRunning) this.pauseTimer();
+    else this.startTimer();
   }
 
   startTimer() {
     if (this.isTimerRunning) return;
+    if (this.timeLeft <= 0) this.timeLeft = this.modeSeconds(this.timerMode);
     this.isTimerRunning = true;
+    this.timerEndsAt = Date.now() + this.timeLeft * 1000;
+    clearInterval(this.timerInterval);
+    this.timerInterval = setInterval(() => this.tickTimer(), 250);
+    this.renderTimerMeta();
+    this.updateTimerDisplay();
+  }
 
-    const toggleBtn = document.getElementById("timer-toggle-btn");
-    const sidebarBtn = document.getElementById("sidebar-timer-start-btn");
-    if (toggleBtn) toggleBtn.innerHTML = `<i class="fa-solid fa-pause"></i> Pause`;
-    if (sidebarBtn) sidebarBtn.innerHTML = `<i class="fa-solid fa-pause"></i> Pause`;
-
-    this.timerInterval = setInterval(() => {
-      if (this.timeLeft > 0) {
-        this.timeLeft--;
-        this.updateTimerDisplay();
-      } else {
-        this.onTimerComplete();
-      }
-    }, 1000);
+  tickTimer() {
+    if (!this.isTimerRunning || !this.timerEndsAt) return;
+    const left = Math.max(0, Math.ceil((this.timerEndsAt - Date.now()) / 1000));
+    if (left !== this.timeLeft) {
+      this.timeLeft = left;
+      this.updateTimerDisplay();
+    }
+    if (left <= 0) this.onTimerComplete();
   }
 
   pauseTimer() {
+    if (this.isTimerRunning && this.timerEndsAt) {
+      this.timeLeft = Math.max(0, Math.ceil((this.timerEndsAt - Date.now()) / 1000));
+    }
     this.isTimerRunning = false;
+    this.timerEndsAt = null;
     clearInterval(this.timerInterval);
-
-    const toggleBtn = document.getElementById("timer-toggle-btn");
-    const sidebarBtn = document.getElementById("sidebar-timer-start-btn");
-    if (toggleBtn) toggleBtn.innerHTML = `<i class="fa-solid fa-play"></i> Start Session`;
-    if (sidebarBtn) sidebarBtn.innerHTML = `<i class="fa-solid fa-play"></i> Start`;
+    this.timerInterval = null;
+    this.renderTimerMeta();
+    this.updateTimerDisplay();
   }
 
   resetTimer() {
     this.pauseTimer();
-    this.timeLeft = this.timerDurations[this.timerMode];
+    this.timeLeft = this.modeSeconds(this.timerMode);
+    this.renderTimerMeta();
     this.updateTimerDisplay();
   }
 
   skipTimer() {
     this.pauseTimer();
-    if (this.timerMode === "pomodoro") {
-      this.setTimerMode("shortBreak");
-    } else {
-      this.setTimerMode("pomodoro");
-    }
+    this.setTimerMode(this.timerMode === "pomodoro" ? "shortBreak" : "pomodoro");
   }
 
   onTimerComplete() {
+    const finished = this.timerMode;
     this.pauseTimer();
-    SoundFX.playChime();
-    ConfettiFX.launch();
+    this.playSound("chime");
 
-    if (this.timerMode === "pomodoro") {
+    if (finished === "pomodoro") {
+      const minutes = Number(this.settings.focusMin) || 25;
+      const today = this.toDateKey(new Date());
       this.pomodoroSessions++;
-      this.focusMinutes += 25;
+      this.focusMinutes += minutes;
+      this.focusLog[today] = (Number(this.focusLog[today]) || 0) + minutes;
+      const task = this.timerTaskId ? this.tasks.find(t => t.id === this.timerTaskId) : null;
+      if (task) task.focusMinutes = (Number(task.focusMinutes) || 0) + minutes;
+      this.cycleCount++;
       this.recordActivity();
       this.schedulePersist();
-      this.showToast("Focus session finished! Time for a well-earned break! ☕");
-      this.setTimerMode("shortBreak");
+      this.celebrate();
+
+      const next = this.cycleCount % 4 === 0 ? "longBreak" : "shortBreak";
+      const message = `Focus session done — ${minutes} min logged${task ? ` on “${task.title}”` : ""}. Time for a ${next === "longBreak" ? "long" : "short"} break ☕`;
+      this.showToast(message, "success", { duration: 6000 });
+      this.showNotification("Focus session complete", message);
+      this.setTimerMode(next);
     } else {
-      this.showToast("Break over! Ready to resume studying? 📚");
+      this.showToast("Break's over — ready for the next session? 📚", "info", { duration: 6000 });
+      this.showNotification("Break's over", "Ready for the next focus session?");
       this.setTimerMode("pomodoro");
     }
 
-    this.renderDashboardStats();
+    if (this.settings.autoStart) this.startTimer();
+    this.renderDashboard();
     this.renderProgressStats();
+    this.renderStreak();
+    this.renderTasks();
+  }
+
+  formatTimer(totalSeconds) {
+    const s = Math.max(0, Math.round(totalSeconds));
+    return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   }
 
   updateTimerDisplay() {
-    const minutes = Math.floor(this.timeLeft / 60);
-    const seconds = this.timeLeft % 60;
-    const formatted = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
+    const formatted = this.formatTimer(this.timeLeft);
     const mainDisplay = document.getElementById("timer-display");
     const sidebarDisplay = document.getElementById("sidebar-timer-time");
     if (mainDisplay) mainDisplay.textContent = formatted;
     if (sidebarDisplay) sidebarDisplay.textContent = formatted;
 
-    // SVG Circular Progress
-    const totalDuration = this.timerDurations[this.timerMode];
+    const total = this.modeSeconds(this.timerMode);
+    const fraction = Math.min(1, Math.max(0, (total - this.timeLeft) / total));
     const circle = document.getElementById("timer-progress-circle");
     if (circle) {
-      const circumference = 2 * Math.PI * 90; // r=90 => 565.48
-      const progressFraction = (totalDuration - this.timeLeft) / totalDuration;
-      const offset = circumference * (1 - progressFraction);
-      circle.style.strokeDashoffset = offset;
+      const circumference = 2 * Math.PI * 90;
+      circle.style.strokeDasharray = String(circumference);
+      circle.style.strokeDashoffset = String(circumference * (1 - fraction));
     }
+    const bar = document.getElementById("sidebar-timer-bar");
+    if (bar) bar.style.width = `${fraction * 100}%`;
+
+    this.updateDocumentTitle();
+  }
+
+  /** Everything around the digits: labels, buttons, mode colours, cycle dots, task picker. */
+  renderTimerMeta() {
+    const mode = this.timerMode;
+    const running = this.isTimerRunning;
+    const total = this.modeSeconds(mode);
+    const started = this.timeLeft < total;
+
+    document.getElementById("timer-card")?.setAttribute("data-mode", mode);
+    document.getElementById("sidebar-widget")?.setAttribute("data-mode", mode);
+    document.querySelectorAll(".mode-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.mode === mode);
+      const mins = Math.round(this.modeSeconds(btn.dataset.mode) / 60);
+      const label = btn.dataset.mode === "pomodoro" ? "Focus" : btn.dataset.mode === "shortBreak" ? "Short break" : "Long break";
+      btn.textContent = `${label} · ${mins}m`;
+    });
+
+    const toggleBtn = document.getElementById("timer-toggle-btn");
+    if (toggleBtn) {
+      toggleBtn.innerHTML = running ? '<i class="fa-solid fa-pause"></i> Pause'
+        : started ? '<i class="fa-solid fa-play"></i> Resume' : '<i class="fa-solid fa-play"></i> Start';
+    }
+    const sidebarBtn = document.getElementById("sidebar-timer-start-btn");
+    if (sidebarBtn) {
+      sidebarBtn.innerHTML = running ? '<i class="fa-solid fa-pause"></i> Pause'
+        : started ? '<i class="fa-solid fa-play"></i> Resume' : '<i class="fa-solid fa-play"></i> Start';
+    }
+    const sidebarTag = document.getElementById("sidebar-timer-mode");
+    if (sidebarTag) sidebarTag.textContent = mode === "pomodoro" ? "Focus" : mode === "shortBreak" ? "Break" : "Rest";
+    document.getElementById("nav-timer-live")?.classList.toggle("hidden", !running);
+
+    // Task picker
+    const select = document.getElementById("timer-task-select");
+    const task = this.timerTaskId ? this.tasks.find(t => t.id === this.timerTaskId && !t.completed) : null;
+    if (!task) this.timerTaskId = "";
+    if (select) {
+      const pending = this.tasks.filter(t => !t.completed).sort((a, b) => this.compareByDue(a, b));
+      select.innerHTML = '<option value="">Just focusing</option>' + pending.map(t =>
+        `<option value="${this.escapeHTML(t.id)}">${this.escapeHTML(t.title)} — ${this.escapeHTML(t.subject || "")}</option>`
+      ).join("");
+      select.value = this.timerTaskId;
+    }
+
+    const status = document.getElementById("timer-status-text");
+    if (status) {
+      let text;
+      if (mode === "pomodoro") {
+        text = running ? (task ? `Focusing on ${task.title}` : "Stay with it — you've got this")
+          : started ? "Paused" : (task ? `Ready to work on ${task.title}` : "Ready to focus");
+      } else if (mode === "shortBreak") {
+        text = running ? "Stretch, hydrate, look away from the screen" : started ? "Break paused" : "Take a short break";
+      } else {
+        text = running ? "Long break — you've earned it" : started ? "Break paused" : "Recharge with a long break";
+      }
+      status.textContent = text;
+    }
+
+    const dots = document.getElementById("timer-cycle-dots");
+    if (dots) {
+      let filled = this.cycleCount % 4;
+      if (filled === 0 && this.cycleCount > 0 && mode === "longBreak") filled = 4;
+      dots.innerHTML = [0, 1, 2, 3].map(i => `<span class="cycle-dot ${i < filled ? "filled" : ""}"></span>`).join("");
+    }
+    this.updateDocumentTitle();
   }
 
   // ===========================================================================
-  // 9b. Calendar & Events Management
+  // Calendar & Events
   // ===========================================================================
 
   // Local-time date key (YYYY-MM-DD) — avoids the UTC off-by-one of toISOString().
@@ -1471,7 +2740,6 @@ class StudyBuddyApp {
     return `${y}-${m}-${d}`;
   }
 
-  // Start/end Date objects for an event.
   eventStart(event) {
     return new Date(`${event.date}T${event.startTime || "00:00"}:00`);
   }
@@ -1488,7 +2756,7 @@ class StudyBuddyApp {
     return dateObj.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   }
 
-  // "Ends in 2d 4h", "Starts in 45m", "Happening now" etc.
+  // "Starts in 45 mins", "Happening now · ends in 20m", "In 2 days · 4h" …
   formatCountdown(event) {
     const now = Date.now();
     const start = this.eventStart(event).getTime();
@@ -1500,24 +2768,31 @@ class StudyBuddyApp {
     }
 
     const minutes = Math.ceil((start - now) / 60000);
-    if (minutes <= 0) {
-      return { text: "Already finished", state: "past", minutes: -1 };
-    }
+    if (minutes <= 0) return { text: "Finished", state: "past", minutes: -1 };
 
-    let state = "upcoming";
-    if (minutes <= 60) state = "urgent";
-
+    const state = minutes <= 60 ? "urgent" : "upcoming";
     let text;
-    if (minutes < 60) {
-      text = `Starts in ${minutes} min${minutes === 1 ? "" : "s"}`;
-    } else if (minutes < 24 * 60) {
-      text = `Starts in ${this.formatDurationShort(minutes)}`;
-    } else {
-      const days = Math.floor(minutes / (24 * 60));
-      text = `In ${days} day${days === 1 ? "" : "s"} · ${this.formatDurationShort(minutes % (24 * 60))}`;
+    if (minutes < 60) text = `Starts in ${minutes} min${minutes === 1 ? "" : "s"}`;
+    else if (minutes < 24 * 60) text = `Starts in ${this.formatDurationShort(minutes)}`;
+    else {
+      const days = this.daysUntil(event.date);
+      text = days <= 1 ? "Tomorrow" : `In ${days} days`;
     }
-
     return { text, state, minutes };
+  }
+
+  /** Compact countdown for pills: "Now", "in 35m", "in 3h 20m", "Tomorrow", "in 4 days". */
+  formatCountdownShort(event) {
+    const now = Date.now();
+    const start = this.eventStart(event).getTime();
+    const end = this.eventEnd(event).getTime();
+    if (now >= start && now <= end) return { text: "Now", state: "now" };
+    const minutes = Math.ceil((start - now) / 60000);
+    if (minutes <= 0) return { text: "Done", state: "past" };
+    if (minutes < 24 * 60) return { text: `in ${this.formatDurationShort(minutes)}`, state: minutes <= 60 ? "urgent" : "soon" };
+    const days = this.daysUntil(event.date);
+    if (days === 1) return { text: "Tomorrow", state: "upcoming" };
+    return { text: `in ${days} days`, state: "upcoming" };
   }
 
   formatDurationShort(totalMinutes) {
@@ -1538,6 +2813,10 @@ class StudyBuddyApp {
       .slice(0, limit);
   }
 
+  eventTypeKey(type) {
+    return ["test", "class", "study"].includes(type) ? type : "event";
+  }
+
   eventTypeInfo(type) {
     switch (type) {
       case "test": return { icon: "fa-solid fa-file-pen", label: "Test / Exam" };
@@ -1545,6 +2824,14 @@ class StudyBuddyApp {
       case "study": return { icon: "fa-solid fa-book-open-reader", label: "Study" };
       default: return { icon: "fa-solid fa-star", label: "Event" };
     }
+  }
+
+  selectCalendarDate(dateKey) {
+    if (!dateKey) return;
+    const [y, m] = dateKey.split("-").map(Number);
+    this.selectedDate = dateKey;
+    this.calendarYear = y;
+    this.calendarMonth = m - 1;
   }
 
   setupCalendarEvents() {
@@ -1566,30 +2853,75 @@ class StudyBuddyApp {
     });
 
     document.getElementById("cal-today-btn")?.addEventListener("click", () => {
-      const now = new Date();
-      this.calendarYear = now.getFullYear();
-      this.calendarMonth = now.getMonth();
-      this.selectedDate = this.toDateKey(now);
+      this.selectCalendarDate(this.toDateKey(new Date()));
       this.renderCalendar();
       this.renderAgenda();
     });
 
-    // Requests notification permission on user gesture (required by browsers).
+    const grid = document.getElementById("calendar-grid");
+    grid?.addEventListener("click", (e) => {
+      const cell = e.target.closest(".calendar-day");
+      if (!cell) return;
+      this.selectCalendarDate(cell.dataset.date);
+      this.renderCalendar();
+      this.renderAgenda();
+      // On phones the agenda sits below the grid — bring it into view.
+      if (window.matchMedia && window.matchMedia("(max-width: 1100px)").matches) {
+        document.querySelector(".calendar-agenda-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+    grid?.addEventListener("dblclick", (e) => {
+      const cell = e.target.closest(".calendar-day");
+      if (cell) this.openEventModal(null, { date: cell.dataset.date });
+    });
+
+    document.getElementById("agenda-list")?.addEventListener("click", (e) => {
+      const taskItem = e.target.closest("[data-task-id]");
+      if (taskItem) {
+        const id = taskItem.dataset.taskId;
+        if (e.target.closest("[data-action='toggle-task']")) this.toggleTaskCompletion(id);
+        else this.openTaskModal(this.tasks.find(t => t.id === id));
+        return;
+      }
+      const evItem = e.target.closest("[data-event-id]");
+      if (!evItem) return;
+      const id = evItem.dataset.eventId;
+      if (e.target.closest("[data-action='delete']")) this.deleteEvent(id);
+      else {
+        const ev = this.events.find(x => x.id === id);
+        if (ev) this.openEventModal(ev);
+      }
+    });
+
+    document.getElementById("delete-event-in-modal-btn")?.addEventListener("click", () => {
+      const id = document.getElementById("event-id")?.value;
+      if (!id) return;
+      this.closeModal(document.getElementById("event-modal"));
+      this.deleteEvent(id);
+    });
+
+    // Requests notification permission on a user gesture (required by browsers).
     document.getElementById("enable-notifications-btn")?.addEventListener("click", () => this.enableNotifications());
   }
 
-  openEventModal(event = null) {
+  openEventModal(event = null, prefill = {}) {
     const modal = document.getElementById("event-modal");
     const form = document.getElementById("event-form");
     const titleEl = document.getElementById("event-modal-title");
+    if (!modal || !form) return;
 
     form.reset();
+    const setType = (type) => {
+      const radio = form.querySelector(`input[name="event-type"][value="${this.eventTypeKey(type)}"]`);
+      if (radio) radio.checked = true;
+    };
+    const deleteBtn = document.getElementById("delete-event-in-modal-btn");
 
     if (event) {
-      titleEl.textContent = "Edit Event";
+      titleEl.textContent = "Edit event";
       document.getElementById("event-id").value = event.id;
-      document.getElementById("event-title-input").value = event.title;
-      document.getElementById("event-type-select").value = event.type || "event";
+      document.getElementById("event-title-input").value = event.title || "";
+      setType(event.type || "event");
       document.getElementById("event-subject-input").value = event.subject || "";
       document.getElementById("event-date-input").value = event.date;
       document.getElementById("event-start-time").value = event.startTime || "09:00";
@@ -1597,12 +2929,18 @@ class StudyBuddyApp {
       document.getElementById("event-reminder-select").value = String(event.reminderMinutes ?? 0);
       document.getElementById("event-location-input").value = event.location || "";
       document.getElementById("event-notes-input").value = event.notes || "";
+      document.getElementById("save-event-btn").textContent = "Save changes";
+      deleteBtn?.classList.remove("hidden");
     } else {
-      titleEl.textContent = "New Event";
+      titleEl.textContent = "New event";
       document.getElementById("event-id").value = "";
-      document.getElementById("event-date-input").value = this.selectedDate || this.toDateKey(new Date());
+      const defaultDate = prefill.date || (this.currentTab === "calendar" ? this.selectedDate : this.toDateKey(new Date()));
+      document.getElementById("event-date-input").value = defaultDate;
       document.getElementById("event-start-time").value = "09:00";
       document.getElementById("event-end-time").value = "10:00";
+      setType(prefill.type || "event");
+      document.getElementById("save-event-btn").textContent = "Add event";
+      deleteBtn?.classList.add("hidden");
     }
 
     this.openModal(modal);
@@ -1611,7 +2949,7 @@ class StudyBuddyApp {
   saveEventFromForm() {
     const id = document.getElementById("event-id").value;
     const title = document.getElementById("event-title-input").value.trim();
-    const type = document.getElementById("event-type-select").value;
+    const type = document.querySelector('input[name="event-type"]:checked')?.value || "event";
     const subject = document.getElementById("event-subject-input").value.trim();
     const date = document.getElementById("event-date-input").value;
     const startTime = document.getElementById("event-start-time").value;
@@ -1624,21 +2962,16 @@ class StudyBuddyApp {
       this.showToast("Please fill in the title, date and times", "alert");
       return;
     }
-
     if (startTime >= endTime) {
-      this.showToast("End time must be after the start time", "alert");
+      this.showToast("The end time must be after the start time", "alert");
       return;
     }
 
     if (id) {
       const index = this.events.findIndex(e => e.id === id);
       if (index !== -1) {
-        this.events[index] = {
-          ...this.events[index],
-          title, type, subject, date, startTime, endTime,
-          reminderMinutes, location, notes
-        };
-        this.showToast("Event updated!");
+        this.events[index] = { ...this.events[index], title, type, subject, date, startTime, endTime, reminderMinutes, location, notes };
+        this.showToast("Event updated");
       }
     } else {
       this.events.push({
@@ -1647,45 +2980,27 @@ class StudyBuddyApp {
         reminderMinutes, location, notes,
         createdAt: new Date().toISOString()
       });
-      this.showToast("Event added to your calendar!");
+      this.showToast(`Added to your calendar — ${this.formatLongDate(new Date(`${date}T00:00:00`))}`);
     }
 
     // Jump the calendar to the saved event so it's immediately visible.
-    const [y, m] = date.split("-").map(Number);
-    this.calendarYear = y;
-    this.calendarMonth = m - 1;
-    this.selectedDate = date;
+    this.selectCalendarDate(date);
 
-    this.saveEvents();
+    this.schedulePersist();
     this.recordActivity();
     this.closeModal(document.getElementById("event-modal"));
     this.renderAll();
   }
 
   deleteEvent(id) {
-    const event = this.events.find(e => e.id === id);
-    if (!event) return;
-
-    if (confirm(`Delete "${event.title}" from your calendar?`)) {
-      this.events = this.events.filter(e => e.id !== id);
-      this.saveEvents();
-      this.renderAll();
-      this.showToast("Event deleted", "info");
-    }
-  }
-
-  saveEvents() {
-    this.schedulePersist();
+    this.removeWithUndo("events", id, "Event");
   }
 
   // ===========================================================================
-  // 9d. Study Streak Tracking
+  // Study streak
   // ===========================================================================
 
-  /**
-   * Records that the user did something meaningful today. A day only counts
-   * once, so callers can fire this freely on every save.
-   */
+  /** Records that the user did something meaningful today (counted once per day). */
   recordActivity() {
     const today = this.toDateKey(new Date());
     if (!this.activeDates.includes(today)) {
@@ -1696,8 +3011,7 @@ class StudyBuddyApp {
 
   /**
    * Backfills history for accounts created before streak tracking existed by
-   * inferring activity from the tasks, sessions and events they already have.
-   * Stored timestamps are UTC, so they're converted to local dates.
+   * inferring activity from the tasks and events they already have.
    */
   backfillActivityFromData() {
     if (this.activeDates.length > 0) return;
@@ -1721,10 +3035,7 @@ class StudyBuddyApp {
     this.schedulePersist();
   }
 
-  /**
-   * Consecutive days of activity ending today (or yesterday, so a streak isn't
-   * considered broken until a full day has been missed).
-   */
+  /** Consecutive active days ending today (or yesterday, so it isn't broken until a full day is missed). */
   getCurrentStreak() {
     const days = new Set(this.activeDates);
     const cursor = new Date();
@@ -1750,6 +3061,7 @@ class StudyBuddyApp {
     const cursor = new Date();
     cursor.setHours(0, 0, 0, 0);
     cursor.setDate(cursor.getDate() - 6);
+    const todayKey = this.toDateKey(new Date());
 
     for (let i = 0; i < 7; i++) {
       const key = this.toDateKey(cursor);
@@ -1757,7 +3069,7 @@ class StudyBuddyApp {
         key,
         label: cursor.toLocaleDateString("en-US", { weekday: "narrow" }),
         done: days.has(key),
-        isToday: key === this.toDateKey(new Date())
+        isToday: key === todayKey
       });
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -1767,60 +3079,60 @@ class StudyBuddyApp {
   renderStreak() {
     const streak = this.getCurrentStreak();
 
-    // Sidebar badge
     const sidebarStreak = document.getElementById("sidebar-streak");
     if (sidebarStreak) {
-      const text = streak === 0 ? "No streak yet"
-        : `${streak} Day Streak`;
-      sidebarStreak.innerHTML = `<i class="fa-solid fa-fire text-amber"></i> ${text}`;
+      sidebarStreak.innerHTML = `<i class="fa-solid fa-fire"></i> ${streak === 0 ? "No streak yet" : `${streak} day streak`}`;
     }
+    const statStreak = document.getElementById("stat-streak");
+    if (statStreak) statStreak.textContent = streak;
 
-    // Progress-tab banner
     const titleEl = document.getElementById("streak-banner-title");
     const textEl = document.getElementById("streak-banner-text");
     if (titleEl) {
       if (streak === 0) {
         titleEl.textContent = "No study streak yet";
-        if (textEl) textEl.textContent = "Complete an assignment, mark a session done, or finish a focus sprint to start your streak.";
+        if (textEl) textEl.textContent = "Complete an assignment, mark a session done, or finish a focus sprint to start one.";
       } else {
-        titleEl.textContent = `${streak} Day Study Streak Active!`;
+        titleEl.textContent = `${streak} day streak${streak >= 3 ? " 🔥" : ""}`;
         if (textEl) {
           textEl.textContent = streak === 1
             ? "Nice start — come back tomorrow to keep it going."
-            : "You've stayed consistent with your studies. Keep the momentum up!";
+            : "You've stayed consistent. Keep the momentum up!";
         }
       }
     }
 
-    // Weekly bubbles
     const container = document.getElementById("weekly-streak-days");
     if (container) {
       container.innerHTML = this.getWeeklyActivity().map(day => `
-        <div class="day-bubble ${day.done ? 'done' : ''} ${day.isToday ? 'today' : ''}">
+        <div class="day-bubble ${day.done ? "done" : ""} ${day.isToday ? "today" : ""}" title="${day.key}">
           <span>${day.label}</span>
-          ${day.done ? '<i class="fa-solid fa-check"></i>' : ''}
+          ${day.done ? '<i class="fa-solid fa-check"></i>' : ""}
         </div>
-      `).join('');
+      `).join("");
     }
   }
 
   // ===========================================================================
-  // 9c. Reminders & Live Countdowns
+  // Reminders & live countdowns
   // ===========================================================================
   startReminderTicker() {
     if (this._reminderTick) clearInterval(this._reminderTick);
-    this._lastReminderKey = "";
-    // Re-render every 30s so countdowns stay live.
+    // Re-render every 30s so countdowns and "now" markers stay live.
     this._reminderTick = setInterval(() => {
+      this.checkDueReminders();
       this.renderDashboardReminders();
+      this.renderDashboardNextUp();
+      this.renderDashboardToday();
       if (this.currentTab === "calendar") this.renderAgenda();
+      if (this.currentTab === "timetable") this.renderTimetable();
     }, 30000);
   }
 
   showNotification(title, body) {
     try {
       if (!("Notification" in window) || Notification.permission !== "granted") return;
-      new Notification(title, { body, icon: "favicon.ico" });
+      new Notification(title, { body });
     } catch (e) {
       /* Notification API unavailable — the in-app toast still shows. */
     }
@@ -1834,52 +3146,83 @@ class StudyBuddyApp {
     try {
       const permission = await Notification.requestPermission();
       if (permission === "granted") {
-        this.showToast("Reminders enabled — we'll notify you before each event!");
+        this.showToast("Reminders on — you'll get an alert before each event");
         this.showNotification("StudyBuddy reminders on", "You'll get a desktop alert before your events start.");
       } else {
-        this.showToast("Notifications were blocked — reminders will still appear in the dashboard", "info");
+        this.showToast("Notifications are blocked — reminders will still appear inside StudyBuddy", "info");
       }
-      this.renderDashboardReminders();
     } catch (e) {
       console.warn("Notification permission error:", e);
     }
+    this.renderNotificationButton();
   }
 
-  // Fires a reminder alert once, when an event crosses its reminder threshold.
-  checkDueReminders() {
-    const now = Date.now();
-    const due = this.events
-      .filter(ev => ev.reminderMinutes > 0)
-      .map(ev => ({ ev, start: this.eventStart(ev).getTime() }))
-      .filter(({ start }) => start > now && start - now <= 60000)
-      .sort((a, b) => a.start - b.start);
-
-    if (due.length === 0) {
-      this._lastReminderKey = "";
+  renderNotificationButton() {
+    const btn = document.getElementById("enable-notifications-btn");
+    if (!btn) return;
+    if (!("Notification" in window)) {
+      btn.classList.add("hidden");
       return;
     }
+    const perm = Notification.permission;
+    btn.disabled = perm !== "default";
+    btn.title = perm === "denied" ? "Notifications are blocked in your browser settings" : "";
+    btn.innerHTML = perm === "granted"
+      ? '<i class="fa-solid fa-bell"></i> <span>Reminders on</span>'
+      : perm === "denied"
+        ? '<i class="fa-regular fa-bell-slash"></i> <span>Reminders blocked</span>'
+        : '<i class="fa-regular fa-bell"></i> <span>Enable reminders</span>';
+  }
 
-    const key = due.map(({ ev }) => ev.id).join("|");
-    if (key === this._lastReminderKey) return; // already announced this batch
-    this._lastReminderKey = key;
+  remindedKeys() {
+    if (!this._reminded) {
+      try {
+        this._reminded = new Set(JSON.parse(localStorage.getItem("studybuddy-reminded") || "[]"));
+      } catch (e) {
+        this._reminded = new Set();
+      }
+    }
+    return this._reminded;
+  }
 
-    due.forEach(({ ev }) => {
-      const subject = ev.subject ? ` (${ev.subject})` : "";
-      const message = `${ev.title}${subject} starts at ${this.formatClock(this.eventStart(ev))}`;
-      this.showToast(`Reminder: ${message}`, "info");
-      this.showNotification("StudyBuddy reminder", message);
+  /**
+   * Fires each event's reminder once, when "now" enters its reminder window
+   * (e.g. 30 minutes before the start). Fired keys are remembered on this
+   * device so reloads don't repeat the alert.
+   */
+  checkDueReminders() {
+    const now = Date.now();
+    const fired = this.remindedKeys();
+    let changed = false;
+
+    this.events.forEach(ev => {
+      const mins = Number(ev.reminderMinutes) || 0;
+      if (!mins) return;
+      const start = this.eventStart(ev).getTime();
+      const key = `${ev.id}@${ev.date}T${ev.startTime}`;
+      if (now >= start - mins * 60000 && now < start && !fired.has(key)) {
+        fired.add(key);
+        changed = true;
+        const when = this.formatCountdown(ev).text.replace(/^Starts in/, "starts in");
+        const message = `${ev.title}${ev.subject ? ` (${ev.subject})` : ""} ${when.toLowerCase().startsWith("in ") ? `is ${when.toLowerCase()}` : when} — ${this.formatClock(this.eventStart(ev))}`;
+        this.showToast(`Reminder: ${message}`, "info", { duration: 9000 });
+        this.showNotification("StudyBuddy reminder", message);
+      }
     });
+
+    if (changed) {
+      try {
+        localStorage.setItem("studybuddy-reminded", JSON.stringify([...fired].slice(-200)));
+      } catch (e) { /* best-effort */ }
+    }
   }
 
   // ===========================================================================
-  // 9e. Theme (Light / Dark)
+  // Theme (light / dark)
   // ===========================================================================
   setupTheme() {
-    // Sync the in-app state with whatever the login screen already applied.
     this.theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-
     document.getElementById("theme-toggle")?.addEventListener("click", () => this.toggleTheme());
-    document.getElementById("theme-toggle-mobile")?.addEventListener("click", () => this.toggleTheme());
 
     // Follow the OS preference until the user makes an explicit choice.
     if (window.matchMedia) {
@@ -1902,10 +3245,8 @@ class StudyBuddyApp {
   }
 
   // ===========================================================================
-  // 9f. Marks & Grades
+  // Marks & Grades
   // ===========================================================================
-
-  // Percentage for a mark, guarded against a zero/invalid maximum.
   markPercent(mark) {
     const max = Number(mark.maxMarks);
     const score = Number(mark.score);
@@ -1913,9 +3254,8 @@ class StudyBuddyApp {
     return Math.round((score / max) * 1000) / 10; // one decimal place
   }
 
-  // Letter grade from a percentage.
   markGrade(percent) {
-    if (percent === null) return "—";
+    if (percent === null || percent === undefined) return "—";
     if (percent >= 90) return "A+";
     if (percent >= 85) return "A";
     if (percent >= 80) return "A-";
@@ -1928,16 +3268,15 @@ class StudyBuddyApp {
     return "F";
   }
 
-  // Colour band used for the left border / score badge.
   markGradeBand(percent) {
-    if (percent === null) return "mid";
+    if (percent === null || percent === undefined) return "mid";
     if (percent >= 75) return "high";
     if (percent >= 50) return "mid";
     return "low";
   }
 
   markTypeLabel(type) {
-    switch (type) {
+    switch (String(type || "").toLowerCase()) {
       case "exam": return "Exam";
       case "quiz": return "Quiz";
       case "assignment": return "Assignment";
@@ -1947,8 +3286,7 @@ class StudyBuddyApp {
     }
   }
 
-  // Weighted percentage across all marks (falls back to a simple average when
-  // no weights have been provided).
+  // Weighted percentage across all marks (simple average when no weights are given).
   marksOverallPercent() {
     const scored = this.marks.filter(m => this.markPercent(m) !== null);
     if (scored.length === 0) return null;
@@ -1982,11 +3320,7 @@ class StudyBuddyApp {
     });
 
     return Object.values(groups)
-      .map(g => ({
-        subject: g.subject,
-        percent: Math.round((g.sum / g.count) * 10) / 10,
-        count: g.count
-      }))
+      .map(g => ({ subject: g.subject, percent: Math.round((g.sum / g.count) * 10) / 10, count: g.count }))
       .sort((a, b) => b.percent - a.percent);
   }
 
@@ -2011,10 +3345,20 @@ class StudyBuddyApp {
       this.renderMarks();
     });
 
-    // Live percentage preview inside the modal.
     const updatePreview = () => this.updateMarkPercentPreview();
     document.getElementById("mark-score-input")?.addEventListener("input", updatePreview);
     document.getElementById("mark-max-input")?.addEventListener("input", updatePreview);
+
+    document.getElementById("marks-list")?.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-mark-id]");
+      if (!row) return;
+      const id = row.dataset.markId;
+      if (e.target.closest("[data-action='delete']")) this.deleteMark(id);
+      else {
+        const mark = this.marks.find(m => m.id === id);
+        if (mark) this.openMarkModal(mark);
+      }
+    });
   }
 
   updateMarkPercentPreview() {
@@ -2033,32 +3377,36 @@ class StudyBuddyApp {
 
     const band = this.markGradeBand(percent);
     el.className = `form-hint ${band === "high" ? "percent-good" : band === "low" ? "percent-low" : ""}`.trim();
-    el.innerHTML = `<i class="fa-solid fa-calculator"></i> That's <strong>${percent}%</strong> — Grade ${this.markGrade(percent)}.`;
+    el.innerHTML = `<i class="fa-solid fa-calculator"></i> That's <strong>${percent}%</strong> — grade ${this.markGrade(percent)}.`;
   }
 
   openMarkModal(mark = null) {
     const modal = document.getElementById("mark-modal");
     const form = document.getElementById("mark-form");
     const titleEl = document.getElementById("mark-modal-title");
+    if (!modal || !form) return;
 
     form.reset();
 
     if (mark) {
-      titleEl.textContent = "Edit Mark";
+      titleEl.textContent = "Edit mark";
       document.getElementById("mark-id").value = mark.id;
-      document.getElementById("mark-title-input").value = mark.title;
+      document.getElementById("mark-title-input").value = mark.title || "";
       document.getElementById("mark-subject-input").value = mark.subject || "";
       document.getElementById("mark-date-input").value = mark.date || this.toDateKey(new Date());
       document.getElementById("mark-score-input").value = mark.score;
       document.getElementById("mark-max-input").value = mark.maxMarks;
-      document.getElementById("mark-type-select").value = mark.type || "test";
+      document.getElementById("mark-type-select").value = String(mark.type || "test").toLowerCase();
       document.getElementById("mark-weight-input").value = mark.weight || "";
       document.getElementById("mark-notes-input").value = mark.notes || "";
+      document.getElementById("save-mark-btn").textContent = "Save changes";
     } else {
-      titleEl.textContent = "Record a Mark";
+      titleEl.textContent = "Record a mark";
       document.getElementById("mark-id").value = "";
       document.getElementById("mark-date-input").value = this.toDateKey(new Date());
       document.getElementById("mark-type-select").value = "test";
+      if (this.markSubjectFilter !== "all") document.getElementById("mark-subject-input").value = this.markSubjectFilter;
+      document.getElementById("save-mark-btn").textContent = "Save mark";
     }
 
     this.updateMarkPercentPreview();
@@ -2081,17 +3429,14 @@ class StudyBuddyApp {
       this.showToast("Please fill in the title, subject and date", "alert");
       return;
     }
-
     if (isNaN(score) || isNaN(maxMarks) || maxMarks <= 0) {
       this.showToast("Please enter a valid score and maximum mark", "alert");
       return;
     }
-
     if (score < 0 || score > maxMarks) {
-      this.showToast("Score must be between 0 and the maximum mark", "alert");
+      this.showToast("The score must be between 0 and the maximum mark", "alert");
       return;
     }
-
     if (weight !== null && (isNaN(weight) || weight < 0 || weight > 100)) {
       this.showToast("Weight must be between 0 and 100", "alert");
       return;
@@ -2100,11 +3445,8 @@ class StudyBuddyApp {
     if (id) {
       const index = this.marks.findIndex(m => m.id === id);
       if (index !== -1) {
-        this.marks[index] = {
-          ...this.marks[index],
-          title, subject, date, score, maxMarks, type, weight, notes
-        };
-        this.showToast("Mark updated!");
+        this.marks[index] = { ...this.marks[index], title, subject, date, score, maxMarks, type, weight, notes };
+        this.showToast("Mark updated");
       }
     } else {
       this.marks.unshift({
@@ -2116,38 +3458,23 @@ class StudyBuddyApp {
       this.showToast(`Mark saved — ${percent}% (${this.markGrade(percent)})`);
     }
 
-    this.saveMarks();
+    this.schedulePersist();
     this.recordActivity();
     this.closeModal(document.getElementById("mark-modal"));
     this.renderAll();
   }
 
   deleteMark(id) {
-    const mark = this.marks.find(m => m.id === id);
-    if (!mark) return;
-
-    if (confirm(`Delete the mark for "${mark.title}"?`)) {
-      this.marks = this.marks.filter(m => m.id !== id);
-      this.saveMarks();
-      this.renderAll();
-      this.showToast("Mark deleted", "info");
-    }
-  }
-
-  saveMarks() {
-    this.schedulePersist();
+    this.removeWithUndo("marks", id, "Mark");
   }
 
   // ===========================================================================
-  // 10. Rendering & Updating Views
+  // Rendering
   // ===========================================================================
   renderAll() {
     this.updateSubjectDropdowns();
-    this.renderDashboardStats();
-    this.renderDashboardReminders();
-    this.renderDashboardPriorities();
-    this.renderDashboardSchedule();
-    this.renderDashboardNotes();
+    this.renderBadges();
+    this.renderDashboard();
     this.renderTasks();
     this.renderCalendar();
     this.renderAgenda();
@@ -2157,283 +3484,518 @@ class StudyBuddyApp {
     this.renderJournal();
     this.renderStreak();
     this.renderProgressStats();
+    this.renderTimerMeta();
+    this.updateTimerDisplay();
   }
 
-  // Populate dynamic subjects into filter & modal datalists
+  // Populate dynamic subjects into filters and the shared datalist.
   updateSubjectDropdowns() {
-    const taskSubjects = [...new Set(this.tasks.map(t => (t.subject || "").trim()))];
-    const noteSubjects = [...new Set(this.notes.map(n => (n.subject || "").trim()))];
-    const eventSubjects = [...new Set(this.events.map(e => (e.subject || "").trim()))];
-    const markSubjects = [...new Set(this.marks.map(m => (m.subject || "").trim()))];
-    const allSubjects = [...new Set([...taskSubjects, ...noteSubjects, ...eventSubjects, ...markSubjects])].filter(Boolean).sort();
+    const all = new Set();
+    [this.tasks, this.notes, this.events, this.marks, this.timetable].forEach(list => {
+      list.forEach(item => {
+        const s = String(item.subject || "").trim();
+        if (s) all.add(s);
+      });
+    });
+    const allSubjects = [...all].sort((a, b) => a.localeCompare(b));
 
-    // Task Filter Dropdown
-    const taskFilter = document.getElementById("task-filter-subject");
-    if (taskFilter) {
-      const current = taskFilter.value;
-      taskFilter.innerHTML = '<option value="all">All Subjects</option>' +
-        allSubjects.map(s => `<option value="${s}" ${current === s ? 'selected' : ''}>${s}</option>`).join('');
-    }
+    const fill = (id, allLabel) => {
+      const select = document.getElementById(id);
+      if (!select) return;
+      const current = select.value;
+      select.innerHTML = `<option value="all">${allLabel}</option>` +
+        allSubjects.map(s => `<option value="${this.escapeHTML(s)}">${this.escapeHTML(s)}</option>`).join("");
+      select.value = allSubjects.includes(current) ? current : "all";
+    };
+    fill("task-filter-subject", "All subjects");
+    fill("note-filter-subject", "All subjects");
+    fill("mark-filter-subject", "All subjects");
+    if (!allSubjects.includes(this.taskSubjectFilter)) this.taskSubjectFilter = "all";
+    if (!allSubjects.includes(this.noteSubjectFilter)) this.noteSubjectFilter = "all";
+    if (!allSubjects.includes(this.markSubjectFilter)) this.markSubjectFilter = "all";
 
-    // Note Filter Dropdown
-    const noteFilter = document.getElementById("note-filter-subject");
-    if (noteFilter) {
-      const current = noteFilter.value;
-      noteFilter.innerHTML = '<option value="all">All Subjects</option>' +
-        allSubjects.map(s => `<option value="${s}" ${current === s ? 'selected' : ''}>${s}</option>`).join('');
-    }
-
-    // Marks Filter Dropdown
-    const markFilter = document.getElementById("mark-filter-subject");
-    if (markFilter) {
-      const current = markFilter.value;
-      markFilter.innerHTML = '<option value="all">All Subjects</option>' +
-        allSubjects.map(s => `<option value="${s}" ${current === s ? 'selected' : ''}>${s}</option>`).join('');
+    const datalist = document.getElementById("subject-suggestions");
+    if (datalist) {
+      const merged = [...new Set([...allSubjects, ...DEFAULT_SUBJECTS])];
+      datalist.innerHTML = merged.map(s => `<option value="${this.escapeHTML(s)}"></option>`).join("");
     }
   }
 
-  // Dashboard Stats
+  renderBadges() {
+    const setCount = (id, n) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = n;
+      el.dataset.zero = String(!n);
+    };
+    setCount("pending-badge", this.tasks.filter(t => !t.completed).length);
+    setCount("calendar-badge", this.getUpcomingEvents(99).length);
+    setCount("marks-badge", this.marks.length);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Today (dashboard)
+  // ---------------------------------------------------------------------------
+  setupDashboardEvents() {
+    const bind = (id, fn) => document.getElementById(id)?.addEventListener("click", fn);
+    bind("dash-start-focus-btn", () => {
+      this.switchTab("progress");
+      if (!this.isTimerRunning) {
+        if (this.timerMode !== "pomodoro") this.setTimerMode("pomodoro");
+        this.startTimer();
+      }
+    });
+    bind("dash-add-task-btn", () => this.openTaskModal());
+    bind("dash-add-event-btn", () => this.openEventModal(null, { date: this.toDateKey(new Date()) }));
+    bind("dash-new-note-btn", () => this.openNoteModal());
+
+    document.getElementById("dashboard-urgent-tasks")?.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-task-id]");
+      if (!item) return;
+      const id = item.dataset.taskId;
+      if (e.target.closest("[data-action='toggle']")) this.toggleTaskCompletion(id);
+      else this.openTaskModal(this.tasks.find(t => t.id === id));
+    });
+
+    document.getElementById("dash-today-list")?.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-kind]");
+      if (!item) return;
+      const { kind, id } = item.dataset;
+      const toggle = e.target.closest("[data-action='toggle']");
+      if (kind === "task") {
+        if (toggle) this.toggleTaskCompletion(id);
+        else this.openTaskModal(this.tasks.find(t => t.id === id));
+      } else if (kind === "slot") {
+        if (toggle) this.toggleTimetableSlotComplete(id);
+        else {
+          const slot = this.timetable.find(s => s.id === id);
+          if (slot) this.openTimetableModal(slot);
+        }
+      } else if (kind === "event") {
+        const ev = this.events.find(x => x.id === id);
+        if (ev) this.openEventModal(ev);
+      }
+    });
+
+    document.getElementById("dashboard-reminders-list")?.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-event-id]");
+      if (!item) return;
+      const ev = this.events.find(x => x.id === item.dataset.eventId);
+      if (ev) this.openEventModal(ev);
+    });
+
+    document.getElementById("dashboard-recent-notes")?.addEventListener("click", (e) => {
+      const card = e.target.closest("[data-note-id]");
+      if (!card) return;
+      const note = this.notes.find(n => n.id === card.dataset.noteId);
+      if (note) this.openNoteModal(note);
+    });
+
+    document.getElementById("dash-next-up")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-next-action]");
+      if (!btn) return;
+      const { nextAction, id } = btn.dataset;
+      if (nextAction === "focus") this.focusOnTask(id);
+      else if (nextAction === "event") {
+        const ev = this.events.find(x => x.id === id);
+        if (ev) this.openEventModal(ev);
+      } else if (nextAction === "slot") {
+        this.toggleTimetableSlotComplete(id);
+      } else if (nextAction === "plan") {
+        this.openEventModal(null, { date: this.toDateKey(new Date()) });
+      }
+    });
+  }
+
+  renderDashboard() {
+    this.renderDashboardHero();
+    this.renderDashboardStats();
+    this.renderDashboardNextUp();
+    this.renderDashboardToday();
+    this.renderDashboardPriorities();
+    this.renderDashboardWeek();
+    this.renderDashboardReminders();
+    this.renderDashboardNotes();
+    this.renderNotificationButton();
+  }
+
+  renderDashboardHero() {
+    const hour = new Date().getHours();
+    const part = hour < 5 ? "Burning the midnight oil" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    const greeting = document.getElementById("dash-greeting");
+    if (greeting) greeting.textContent = this.firstName ? `${part}, ${this.firstName}` : part;
+    const dateEl = document.getElementById("dash-date");
+    if (dateEl) dateEl.textContent = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    const summary = document.getElementById("dash-summary");
+    if (summary) summary.innerHTML = this.buildDaySummary();
+  }
+
+  buildDaySummary() {
+    const pending = this.tasks.filter(t => !t.completed);
+    const overdue = pending.filter(t => (this.daysUntil(t.dueDate) ?? 0) < 0).length;
+    const dueToday = pending.filter(t => this.daysUntil(t.dueDate) === 0).length;
+    const dueWeek = pending.filter(t => { const d = this.daysUntil(t.dueDate); return d !== null && d >= 1 && d <= 7; }).length;
+    const sessions = this.timetable.filter(s => s.day === this.todayName() && !this.isSlotDone(s)).length;
+    const nextTest = this.getUpcomingEvents(50).find(ev => ev.type === "test");
+    const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+    const parts = [];
+    if (dueToday) parts.push(`<strong>${plural(dueToday, "assignment")} due today</strong>`);
+    if (overdue) parts.push(`<strong>${overdue} overdue</strong>`);
+    if (dueWeek) parts.push(`${dueWeek} more due this week`);
+    if (sessions) parts.push(`${plural(sessions, "session")} on your timetable`);
+
+    let sentence;
+    if (parts.length) {
+      const joined = parts.length === 1 ? parts[0]
+        : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+      sentence = `You have ${joined}.`;
+    } else if (this.tasks.length || this.events.length || this.timetable.length) {
+      sentence = "Nothing urgent today — a good moment to get ahead or review your notes.";
+    } else {
+      sentence = "Welcome! Add an assignment, a test or your timetable and StudyBuddy will plan your day around it.";
+    }
+
+    if (nextTest) {
+      const days = this.daysUntil(nextTest.date);
+      if (days !== null && days <= 14) {
+        const when = days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
+        sentence += ` Your next test, <strong>${this.escapeHTML(nextTest.title)}</strong>, is ${when}.`;
+      }
+    }
+    return sentence;
+  }
+
   renderDashboardStats() {
-    const pendingTasks = this.tasks.filter(t => !t.completed);
-    const completedTasks = this.tasks.filter(t => t.completed);
+    const pending = this.tasks.filter(t => !t.completed);
+    const overdue = pending.filter(t => (this.daysUntil(t.dueDate) ?? 0) < 0).length;
+    const dueWeek = pending.filter(t => { const d = this.daysUntil(t.dueDate); return d !== null && d >= 0 && d <= 7; }).length;
+    const todayFocus = Number(this.focusLog[this.toDateKey(new Date())]) || 0;
+    const goal = Number(this.settings.focusGoal) || 60;
 
-    const pendingBadge = document.getElementById("pending-badge");
-    if (pendingBadge) pendingBadge.textContent = pendingTasks.length;
-
-    const marksBadge = document.getElementById("marks-badge");
-    if (marksBadge) marksBadge.textContent = this.marks.length;
-
-    const statPending = document.getElementById("stat-pending");
-    if (statPending) statPending.textContent = pendingTasks.length;
-
-    const statCompleted = document.getElementById("stat-completed");
-    if (statCompleted) statCompleted.textContent = completedTasks.length;
-
-    const quickDone = document.getElementById("quick-done-count");
-    if (quickDone) quickDone.textContent = `${completedTasks.length} Completed`;
-
-    // Today's Timetable count
-    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const todayName = daysOfWeek[new Date().getDay()];
-    const todaySlots = this.timetable.filter(s => s.day === todayName);
-
-    const statTodaySlots = document.getElementById("stat-today-slots");
-    if (statTodaySlots) statTodaySlots.textContent = todaySlots.length;
-
-    // Study Time
-    const statStudyTime = document.getElementById("stat-study-time");
-    if (statStudyTime) {
-      const hours = Math.floor(this.focusMinutes / 60);
-      const mins = this.focusMinutes % 60;
-      statStudyTime.textContent = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-    }
-
-    // Weekly Goal Progress Bar
-    const totalAssignments = this.tasks.length;
-    const completionRate = totalAssignments > 0 ? Math.round((completedTasks.length / totalAssignments) * 100) : 0;
-
-    const dashPercent = document.getElementById("dash-goal-percent");
-    if (dashPercent) dashPercent.textContent = `${completionRate}%`;
-
-    const dashFill = document.getElementById("dash-progress-fill");
-    if (dashFill) dashFill.style.width = `${completionRate}%`;
-
-    const ratioEl = document.getElementById("dash-completed-ratio");
-    if (ratioEl) ratioEl.textContent = `${completedTasks.length} of ${totalAssignments} assignments finished`;
-
-    const encourEl = document.getElementById("dash-encouragement");
-    if (encourEl) {
-      if (completionRate === 100) encourEl.textContent = "Awesome job! You're all clear! 🌟";
-      else if (completionRate >= 50) encourEl.textContent = "More than halfway there! Keep it up! 🚀";
-      else encourEl.textContent = "Stay focused today! 💪";
-    }
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set("stat-due-week", dueWeek);
+    set("stat-overdue", overdue);
+    document.getElementById("stat-overdue")?.closest(".stat-tile")?.classList.toggle("is-alert", overdue > 0);
+    set("stat-focus-today", this.formatMinutes(todayFocus));
+    set("stat-focus-goal-label", `Focus today · goal ${this.formatMinutes(goal)}`);
+    const bar = document.getElementById("stat-focus-goal-bar");
+    if (bar) bar.style.width = `${Math.min(100, (todayFocus / goal) * 100)}%`;
   }
 
-  // Dashboard Upcoming Tasks (Left column)
+  /** The single most relevant thing coming up: something now/soon, an urgent deadline, or the next event. */
+  getNextUp() {
+    const now = Date.now();
+    const todayKey = this.toDateKey(new Date());
+    const timed = [];
+    this.events.forEach(ev => {
+      const start = this.eventStart(ev).getTime();
+      const end = this.eventEnd(ev).getTime();
+      if (end >= now) timed.push({ kind: "event", item: ev, start, end });
+    });
+    this.timetable
+      .filter(s => s.day === this.todayName() && !this.isSlotDone(s))
+      .forEach(slot => {
+        const start = new Date(`${todayKey}T${slot.startTime}:00`).getTime();
+        const end = new Date(`${todayKey}T${slot.endTime}:00`).getTime();
+        if (end >= now) timed.push({ kind: "slot", item: slot, start, end });
+      });
+    timed.sort((a, b) => a.start - b.start);
+
+    const urgentTask = this.tasks
+      .filter(t => !t.completed)
+      .sort((a, b) => this.compareByDue(a, b))[0];
+
+    const soon = timed.find(t => t.start - now <= 24 * 3600000);
+    if (soon) return soon;
+    if (urgentTask && (this.daysUntil(urgentTask.dueDate) ?? 99) <= 3) return { kind: "task", item: urgentTask };
+    if (timed.length) return timed[0];
+    if (urgentTask) return { kind: "task", item: urgentTask };
+    return null;
+  }
+
+  renderDashboardNextUp() {
+    const container = document.getElementById("dash-next-up");
+    if (!container) return;
+    const next = this.getNextUp();
+
+    if (!next) {
+      container.innerHTML = `
+        <span class="eyebrow">Next up</span>
+        <h3 class="next-title">Nothing scheduled</h3>
+        <p class="next-empty">Plan a study session or add your next test — it'll show up here with a live countdown.</p>
+        <button type="button" class="btn btn-sm" data-next-action="plan"><i class="fa-solid fa-plus"></i> Plan something</button>
+      `;
+      return;
+    }
+
+    const now = Date.now();
+    if (next.kind === "task") {
+      const t = next.item;
+      const due = this.formatDueDateBadge(t.dueDate);
+      const days = this.daysUntil(t.dueDate);
+      const big = days === null ? "—" : days < 0 ? `${Math.abs(days)}d late` : days === 0 ? "Today" : days === 1 ? "Tomorrow" : `${days} days`;
+      container.innerHTML = `
+        <span class="eyebrow">Next deadline</span>
+        <span class="next-kind"><i class="fa-solid fa-list-check"></i> Assignment</span>
+        <h3 class="next-title">${this.escapeHTML(t.title)}</h3>
+        <div class="next-meta"><span>${this.escapeHTML(t.subject || "")}</span><span>${this.escapeHTML(due.text)}</span></div>
+        <div class="next-countdown">${big}<small>${days !== null && days < 0 ? "past the due date" : "until it's due"}</small></div>
+        <button type="button" class="btn btn-sm" data-next-action="focus" data-id="${this.escapeHTML(t.id)}"><i class="fa-solid fa-play"></i> Focus on this</button>
+      `;
+      return;
+    }
+
+    const isEvent = next.kind === "event";
+    const item = next.item;
+    const happening = now >= next.start && now <= next.end;
+    const minsToStart = Math.ceil((next.start - now) / 60000);
+    const minsToEnd = Math.ceil((next.end - now) / 60000);
+    const big = happening ? "Now" : minsToStart < 24 * 60 ? this.formatDurationShort(minsToStart)
+      : `${this.daysUntil(item.date)} days`;
+    const small = happening ? `ends in ${this.formatDurationShort(Math.max(1, minsToEnd))}` : "until it starts";
+    const typeInfo = isEvent ? this.eventTypeInfo(item.type) : { icon: "fa-solid fa-table-cells", label: item.type || "Timetable" };
+    const dateLabel = isEvent
+      ? `${this.daysUntil(item.date) === 0 ? "Today" : this.formatLongDate(this.eventStart(item))} · ${this.formatClock(this.eventStart(item))}`
+      : `Today · ${this.formatHM(item.startTime)} – ${this.formatHM(item.endTime)}`;
+
+    container.innerHTML = `
+      <span class="eyebrow">${happening ? "Happening now" : "Next up"}</span>
+      <span class="next-kind"><i class="${typeInfo.icon}"></i> ${this.escapeHTML(typeInfo.label)}</span>
+      <h3 class="next-title">${this.escapeHTML(item.title)}</h3>
+      <div class="next-meta">
+        <span>${this.escapeHTML(dateLabel)}</span>
+        ${item.location ? `<span><i class="fa-solid fa-location-dot"></i> ${this.escapeHTML(item.location)}</span>` : ""}
+      </div>
+      <div class="next-countdown">${big}<small>${small}</small></div>
+      ${isEvent
+        ? `<button type="button" class="btn btn-sm" data-next-action="event" data-id="${this.escapeHTML(item.id)}"><i class="fa-solid fa-pen"></i> Details</button>`
+        : `<button type="button" class="btn btn-sm" data-next-action="slot" data-id="${this.escapeHTML(item.id)}"><i class="fa-solid fa-check"></i> Mark done</button>`}
+    `;
+  }
+
+  renderDashboardToday() {
+    const container = document.getElementById("dash-today-list");
+    if (!container) return;
+    const todayKey = this.toDateKey(new Date());
+    const now = Date.now();
+    const items = [];
+
+    this.tasks.filter(t => t.dueDate === todayKey).forEach(t => items.push({
+      kind: "task", id: t.id, sort: "", time: "Due", title: t.title, done: t.completed, now: false,
+      color: this.subjectColor(t.subject), meta: [`Assignment · ${t.subject || "General"}`]
+    }));
+    this.timetable.filter(s => s.day === this.todayName()).forEach(s => items.push({
+      kind: "slot", id: s.id, sort: s.startTime, time: this.formatHM(s.startTime), title: s.title,
+      done: this.isSlotDone(s), now: this.isSlotNow(s), color: this.subjectColor(s.subject),
+      meta: [`${s.type} · ${s.subject}`, s.location ? s.location : ""]
+    }));
+    this.events.filter(ev => ev.date === todayKey).forEach(ev => {
+      const start = this.eventStart(ev).getTime();
+      const end = this.eventEnd(ev).getTime();
+      items.push({
+        kind: "event", id: ev.id, sort: ev.startTime, time: this.formatHM(ev.startTime), title: ev.title,
+        done: end < now, now: now >= start && now <= end, color: `var(--type-${this.eventTypeKey(ev.type)})`,
+        meta: [`${this.eventTypeInfo(ev.type).label}${ev.subject ? ` · ${ev.subject}` : ""}`, ev.location || ""]
+      });
+    });
+    items.sort((a, b) => String(a.sort).localeCompare(String(b.sort)));
+
+    const countEl = document.getElementById("dash-today-count");
+    if (countEl) countEl.textContent = items.length ? `${items.filter(i => i.done).length}/${items.length} done` : "";
+
+    if (!items.length) {
+      container.innerHTML = `
+        <div class="empty-inline">
+          <i class="fa-regular fa-calendar-check"></i>
+          <span>Nothing on the schedule today.</span>
+          <button type="button" class="btn btn-sm btn-soft" data-tab="timetable"><i class="fa-solid fa-plus"></i> Plan your week</button>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = items.map(item => `
+      <div class="tl-item ${item.done ? "is-done" : ""} ${item.now ? "is-now" : ""}" data-kind="${item.kind}" data-id="${this.escapeHTML(item.id)}" style="--subj: ${item.color}">
+        <span class="tl-time">${this.escapeHTML(item.time)}</span>
+        <span class="tl-dot"></span>
+        <div class="tl-body" role="button" tabindex="0">
+          <div class="tl-title">${this.escapeHTML(item.title)}</div>
+          <div class="tl-meta">
+            ${item.now ? '<span class="tl-now-tag">● Now</span>' : ""}
+            ${item.meta.filter(Boolean).map(m => `<span>${this.escapeHTML(m)}</span>`).join("")}
+          </div>
+        </div>
+        ${item.kind !== "event" ? `
+          <button type="button" class="check tl-action ${item.done ? "checked" : ""}" data-action="toggle" aria-label="${item.done ? "Mark as not done" : "Mark as done"}">
+            <i class="fa-solid fa-check"></i>
+          </button>` : "<span></span>"}
+      </div>
+    `).join("");
+  }
+
   renderDashboardPriorities() {
     const container = document.getElementById("dashboard-urgent-tasks");
     if (!container) return;
 
-    const pending = this.tasks
-      .filter(t => !t.completed)
-      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
-      .slice(0, 4);
+    const pending = this.tasks.filter(t => !t.completed).sort((a, b) => this.compareByDue(a, b));
+    const countEl = document.getElementById("dash-due-count");
+    if (countEl) countEl.textContent = pending.length ? `${pending.length} open` : "";
 
     if (pending.length === 0) {
       container.innerHTML = `
-        <div class="p-3 text-center text-muted" style="padding: 1.5rem 0;">
-          <i class="fa-solid fa-mug-hot" style="font-size: 1.75rem; color: #bae6fd; margin-bottom: 0.5rem; display: block;"></i>
-          <p class="text-sm">No pending assignments right now. Enjoy your free time!</p>
-        </div>
-      `;
+        <div class="empty-inline">
+          <i class="fa-solid fa-mug-hot"></i>
+          <span>${this.tasks.length ? "All caught up — enjoy the free time." : "No assignments yet."}</span>
+          <button type="button" class="btn btn-sm btn-soft" data-tab="assignments"><i class="fa-solid fa-plus"></i> Add assignment</button>
+        </div>`;
       return;
     }
 
-    container.innerHTML = pending.map(task => {
-      const isUrgent = task.priority === "high";
-      const dueFormatted = this.formatDueDateBadge(task.dueDate);
-
+    container.innerHTML = pending.slice(0, 5).map(task => {
+      const due = this.formatDueDateBadge(task.dueDate);
+      const priority = PRIORITY_RANK[task.priority] !== undefined ? task.priority : "medium";
       return `
-        <div class="compact-task-item ${isUrgent ? 'high' : ''}">
-          <input type="checkbox" class="task-checkbox" data-task-id="${task.id}" ${task.completed ? 'checked' : ''}>
-          <div class="compact-task-title">${this.escapeHTML(task.title)}</div>
-          <div class="compact-task-meta">
-            <span class="badge ${task.priority === 'high' ? 'badge-high' : 'badge-primary'}">${this.escapeHTML(task.subject)}</span>
-            <span class="${dueFormatted.isOverdue ? 'text-rose font-medium' : ''}">${dueFormatted.text}</span>
+        <div class="compact-task-item" data-task-id="${this.escapeHTML(task.id)}">
+          <button type="button" class="check p-${priority}" data-action="toggle" aria-label="Mark as done"><i class="fa-solid fa-check"></i></button>
+          <div class="compact-task-body">
+            <div class="compact-task-title">${this.escapeHTML(task.title)}</div>
+            <div class="compact-task-meta">
+              <span class="chip" style="--subj: ${this.subjectColor(task.subject)}">${this.escapeHTML(task.subject || "General")}</span>
+              <span class="due-text ${due.isOverdue ? "is-overdue" : due.isToday ? "is-today" : ""}">${this.escapeHTML(due.text)}</span>
+              ${priority === "high" ? '<span class="priority-flag p-high"><i class="fa-solid fa-flag"></i></span>' : ""}
+            </div>
           </div>
         </div>
       `;
-    }).join('');
-
-    // Attach checkbox events
-    container.querySelectorAll(".task-checkbox").forEach(box => {
-      box.addEventListener("change", (e) => {
-        const id = e.target.dataset.taskId;
-        this.toggleTaskCompletion(id);
-      });
-    });
+    }).join("") + (pending.length > 5
+      ? `<button type="button" class="btn btn-sm btn-ghost" data-tab="assignments" style="align-self:flex-start;margin-top:.25rem">+${pending.length - 5} more</button>`
+      : "");
   }
 
-  // Dashboard Today's Schedule (Right column)
-  renderDashboardSchedule() {
-    const container = document.getElementById("dashboard-today-schedule");
-    if (!container) return;
+  renderDashboardWeek() {
+    this.renderWeekChart(document.getElementById("dash-focus-chart"));
+    const week = this.currentWeekDates();
+    const total = week.reduce((sum, k) => sum + (Number(this.focusLog[k]) || 0), 0);
+    const totalEl = document.getElementById("dash-focus-week-total");
+    if (totalEl) totalEl.textContent = `${this.formatMinutes(total)} focused this week`;
 
-    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const todayName = daysOfWeek[new Date().getDay()];
-    // If today has no slots (e.g. weekend), default to showing Monday's preview
-    let slots = this.timetable.filter(s => s.day === todayName);
-    let titleNote = todayName;
-    if (slots.length === 0) {
-      slots = this.timetable.filter(s => s.day === "Monday");
-      titleNote = "Monday (Preview)";
+    const thisWeek = this.tasks.filter(t => week.includes(t.dueDate));
+    const pool = thisWeek.length ? thisWeek : this.tasks;
+    const done = pool.filter(t => t.completed).length;
+    const label = document.getElementById("dash-completion-label");
+    if (label) {
+      label.textContent = pool.length
+        ? `${done}/${pool.length} ${thisWeek.length ? "due this week" : "assignments"} done`
+        : "No assignments yet";
     }
+    const fill = document.getElementById("dash-progress-fill");
+    if (fill) fill.style.width = `${pool.length ? Math.round((done / pool.length) * 100) : 0}%`;
+  }
 
-    slots.sort((a, b) => a.startTime.localeCompare(b.startTime));
+  /** Mon–Sun bar chart of focus minutes with a dashed daily-goal marker. */
+  renderWeekChart(container) {
+    if (!container) return;
+    const week = this.currentWeekDates();
+    const todayKey = this.toDateKey(new Date());
+    const goal = Number(this.settings.focusGoal) || 60;
+    const values = week.map(k => Number(this.focusLog[k]) || 0);
+    const max = Math.max(goal * 1.15, ...values) || 1;
+    const goalPct = (goal / max) * 100;
 
-    if (slots.length === 0) {
-      container.innerHTML = `
-        <div class="text-center text-muted" style="padding: 1.5rem 0;">
-          <i class="fa-solid fa-calendar-check" style="font-size: 1.75rem; color: #bae6fd; margin-bottom: 0.5rem; display: block;"></i>
-          <p class="text-sm">No sessions planned for today.</p>
+    container.innerHTML = week.map((key, i) => {
+      const v = values[i];
+      const pct = Math.min(100, (v / max) * 100);
+      const label = WEEKDAYS[i].slice(0, 1);
+      return `
+        <div class="wc-col ${key === todayKey ? "is-today" : ""} ${v >= goal ? "met-goal" : ""}" title="${WEEKDAYS[i]}: ${this.formatMinutes(v)}">
+          <span class="wc-value">${v ? this.formatMinutes(v) : ""}</span>
+          <div class="wc-bar">
+            <span class="wc-goal" style="bottom: ${goalPct}%"></span>
+            <div class="wc-fill" style="height: ${pct}%"></div>
+          </div>
+          <span class="wc-label">${label}</span>
         </div>
       `;
-      return;
-    }
-
-    container.innerHTML = slots.slice(0, 3).map(slot => `
-      <div class="compact-slot-item">
-        <div class="compact-slot-time">
-          ${slot.startTime} - ${slot.endTime}
-        </div>
-        <div class="compact-slot-details">
-          <div class="compact-slot-title">${this.escapeHTML(slot.title)}</div>
-          <div class="compact-slot-subj">${this.escapeHTML(slot.subject)} • ${this.escapeHTML(slot.type)}</div>
-        </div>
-        <button class="btn btn-sm ${slot.completed ? 'btn-ghost text-emerald' : 'btn-outline'}" data-slot-id="${slot.id}">
-          ${slot.completed ? '<i class="fa-solid fa-check"></i>' : 'Done'}
-        </button>
-      </div>
-    `).join('');
-
-    container.querySelectorAll("button[data-slot-id]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        this.toggleTimetableSlotComplete(btn.dataset.slotId);
-      });
-    });
+    }).join("");
   }
 
-  // Dashboard Recent Notes
-  renderDashboardNotes() {
-    const container = document.getElementById("dashboard-recent-notes");
-    if (!container) return;
-
-    const recent = this.notes.slice(0, 2);
-    if (recent.length === 0) {
-      container.innerHTML = `<p class="text-muted text-sm" style="grid-column: span 2;">No notes yet. Create your first note!</p>`;
-      return;
-    }
-
-    container.innerHTML = recent.map(note => `
-      <div class="mini-note-card" data-note-id="${note.id}">
-        <div class="mini-note-title">${this.escapeHTML(note.title)}</div>
-        <div class="mini-note-preview">${this.escapeHTML(note.content)}</div>
-      </div>
-    `).join('');
-
-    container.querySelectorAll(".mini-note-card").forEach(card => {
-      card.addEventListener("click", () => {
-        const note = this.notes.find(n => n.id === card.dataset.noteId);
-        if (note) this.openNoteModal(note);
-      });
-    });
-  }
-
-  // Dashboard: upcoming events with live countdowns
   renderDashboardReminders() {
     const container = document.getElementById("dashboard-reminders-list");
     if (!container) return;
 
-    this.checkDueReminders();
-
-    const upcoming = this.getUpcomingEvents(6);
-
-    // Keep the Calendar nav badge showing how many events are still ahead.
-    const badge = document.getElementById("calendar-badge");
-    if (badge) badge.textContent = upcoming.length;
-
+    const upcoming = this.getUpcomingEvents(5);
     if (upcoming.length === 0) {
       container.innerHTML = `
         <div class="empty-inline">
           <i class="fa-regular fa-bell"></i>
-          <p class="text-sm">No upcoming tests or events planned. Add one from the Calendar tab!</p>
-          <button class="quick-action-chip" data-tab="calendar"><i class="fa-solid fa-plus"></i> Plan an Event</button>
-        </div>
-      `;
+          <span>No upcoming tests or events.</span>
+          <button type="button" class="btn btn-sm btn-soft" id="dash-plan-event-btn"><i class="fa-solid fa-plus"></i> Add a test or event</button>
+        </div>`;
+      document.getElementById("dash-plan-event-btn")?.addEventListener("click", () => this.openEventModal(null, { type: "test" }));
       return;
     }
 
     container.innerHTML = upcoming.map(ev => {
-      const typeInfo = this.eventTypeInfo(ev.type);
-      const countdown = this.formatCountdown(ev);
-      const isTest = ev.type === "test";
-      const urgent = isTest || countdown.state === "urgent" || countdown.state === "now";
-
+      const start = this.eventStart(ev);
+      const countdown = this.formatCountdownShort(ev);
+      const type = this.eventTypeKey(ev.type);
+      const pillClass = countdown.state === "now" ? "is-now" : countdown.state === "urgent" ? "is-urgent" : type === "test" ? "is-test" : "";
       return `
-        <div class="reminder-item ${urgent ? 'is-urgent' : ''}">
-          <div class="reminder-icon type-${ev.type}">
-            <i class="${typeInfo.icon}"></i>
+        <div class="reminder-item" data-event-id="${this.escapeHTML(ev.id)}" role="button" tabindex="0">
+          <div class="reminder-date type-${type}">
+            <span class="reminder-date-month">${start.toLocaleDateString("en-US", { month: "short" })}</span>
+            <span class="reminder-date-day">${start.getDate()}</span>
           </div>
           <div class="reminder-info">
             <div class="reminder-title">${this.escapeHTML(ev.title)}</div>
             <div class="reminder-when">
-              <i class="fa-regular fa-calendar"></i> ${this.formatLongDate(this.eventStart(ev))}
-              <span>·</span>
-              <i class="fa-regular fa-clock"></i> ${this.formatClock(this.eventStart(ev))} – ${this.formatClock(this.eventEnd(ev))}
-              ${ev.subject ? `<span class="badge badge-sky">${this.escapeHTML(ev.subject)}</span>` : ""}
+              <span>${start.toLocaleDateString("en-US", { weekday: "short" })} · ${this.formatClock(start)}</span>
+              ${ev.subject ? `<span class="chip" style="--subj: ${this.subjectColor(ev.subject)}">${this.escapeHTML(ev.subject)}</span>` : ""}
+              ${Number(ev.reminderMinutes) > 0 ? '<i class="fa-regular fa-bell" title="Reminder set"></i>' : ""}
             </div>
-            <span class="reminder-countdown ${countdown.state === 'now' ? 'is-now' : ''} ${countdown.state === 'urgent' ? 'is-urgent' : ''}">
-              <i class="fa-solid fa-hourglass-half"></i> ${this.escapeHTML(countdown.text)}
-            </span>
           </div>
-          <div class="reminder-actions">
-            <button class="btn-icon-action edit-event-btn" data-event-id="${ev.id}" title="Edit event">
-              <i class="fa-solid fa-pen-to-square"></i>
-            </button>
-          </div>
+          <span class="reminder-countdown ${pillClass}">${this.escapeHTML(countdown.text)}</span>
         </div>
       `;
-    }).join('');
-
-    container.querySelectorAll(".edit-event-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const ev = this.events.find(e => e.id === btn.dataset.eventId);
-        if (ev) this.openEventModal(ev);
-      });
-    });
+    }).join("");
   }
 
-  // Calendar month grid
+  renderDashboardNotes() {
+    const container = document.getElementById("dashboard-recent-notes");
+    if (!container) return;
+
+    const recent = this.notes
+      .map((note, index) => ({ note, index }))
+      .sort((a, b) => {
+        if (Boolean(b.note.pinned) !== Boolean(a.note.pinned)) return b.note.pinned ? 1 : -1;
+        const ta = a.note.updatedAtISO || "";
+        const tb = b.note.updatedAtISO || "";
+        if (ta !== tb) return tb.localeCompare(ta);
+        return a.index - b.index;
+      })
+      .slice(0, 4)
+      .map(x => x.note);
+
+    if (recent.length === 0) {
+      container.innerHTML = `
+        <div class="empty-inline" style="grid-column: 1 / -1;">
+          <i class="fa-regular fa-note-sticky"></i>
+          <span>No notes yet — jot down a formula or a lecture takeaway.</span>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = recent.map(note => `
+      <button type="button" class="mini-note-card accent-${this.escapeHTML(note.color || "sky")}" data-note-id="${this.escapeHTML(note.id)}" style="--nc: var(--note-${this.escapeHTML(note.color || "sky")})">
+        <div class="mini-note-title">${note.pinned ? '<i class="fa-solid fa-thumbtack" style="font-size:.7em;opacity:.6"></i> ' : ""}${this.escapeHTML(note.title)}</div>
+        <div class="mini-note-preview">${this.escapeHTML(String(note.content || "").replace(/\*\*|`/g, "").replace(/^#{1,3}\s+/gm, ""))}</div>
+      </button>
+    `).join("");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Calendar rendering
+  // ---------------------------------------------------------------------------
   renderCalendar() {
     const grid = document.getElementById("calendar-grid");
     const titleEl = document.getElementById("cal-month-title");
@@ -2441,85 +4003,67 @@ class StudyBuddyApp {
 
     const monthNames = ["January", "February", "March", "April", "May", "June",
       "July", "August", "September", "October", "November", "December"];
-
     if (titleEl) titleEl.textContent = `${monthNames[this.calendarMonth]} ${this.calendarYear}`;
 
     const firstOfMonth = new Date(this.calendarYear, this.calendarMonth, 1);
-    // Monday-first grid offset
-    const leadingBlanks = (firstOfMonth.getDay() + 6) % 7;
+    const leadingBlanks = (firstOfMonth.getDay() + 6) % 7; // Monday-first grid
     const daysInMonth = new Date(this.calendarYear, this.calendarMonth + 1, 0).getDate();
-
     const todayKey = this.toDateKey(new Date());
     const cells = [];
 
-    // Leading days from the previous month
     const prevMonthDays = new Date(this.calendarYear, this.calendarMonth, 0).getDate();
     for (let i = leadingBlanks - 1; i >= 0; i--) {
-      const d = prevMonthDays - i;
-      const dateObj = new Date(this.calendarYear, this.calendarMonth - 1, d);
-      cells.push({ dateObj, outside: true });
+      cells.push({ dateObj: new Date(this.calendarYear, this.calendarMonth - 1, prevMonthDays - i), outside: true });
     }
-
-    // Current month
     for (let d = 1; d <= daysInMonth; d++) {
       cells.push({ dateObj: new Date(this.calendarYear, this.calendarMonth, d), outside: false });
     }
-
-    // Trailing days to complete the final week row
-    let trailing = cells.length % 7;
+    const trailing = cells.length % 7;
     if (trailing !== 0) {
       for (let d = 1; d <= 7 - trailing; d++) {
         cells.push({ dateObj: new Date(this.calendarYear, this.calendarMonth + 1, d), outside: true });
       }
     }
 
+    const eventsByDate = {};
+    this.events.forEach(ev => { (eventsByDate[ev.date] = eventsByDate[ev.date] || []).push(ev); });
+    const dueByDate = {};
+    this.tasks.forEach(t => { if (t.dueDate) (dueByDate[t.dueDate] = dueByDate[t.dueDate] || []).push(t); });
+
     grid.innerHTML = cells.map(cell => {
       const key = this.toDateKey(cell.dateObj);
-      const dayEvents = this.events
-        .filter(ev => ev.date === key)
-        .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
-
+      const dayEvents = (eventsByDate[key] || []).slice().sort((a, b) => String(a.startTime || "").localeCompare(String(b.startTime || "")));
+      const dueTasks = dueByDate[key] || [];
+      const items = [
+        ...dueTasks.map(t => ({ cls: "type-due", label: t.title, done: t.completed })),
+        ...dayEvents.map(ev => ({ cls: `type-${this.eventTypeKey(ev.type)}`, label: `${this.formatHMShort(ev.startTime)} ${ev.title}`, done: false }))
+      ];
+      const weekend = cell.dateObj.getDay() === 0 || cell.dateObj.getDay() === 6;
       const classes = [
         "calendar-day",
         cell.outside ? "outside-month" : "",
+        weekend ? "weekend" : "",
         key === todayKey ? "today" : "",
         key === this.selectedDate ? "selected" : ""
       ].filter(Boolean).join(" ");
 
-      const shown = dayEvents.slice(0, 2).map(ev => `
-        <span class="day-event-chip type-${ev.type}">
-          ${this.escapeHTML((ev.startTime || "").slice(0, 5))} ${this.escapeHTML(ev.title)}
-        </span>
-      `).join('');
-
-      const more = dayEvents.length > 2
-        ? `<span class="day-more">+${dayEvents.length - 2} more</span>`
-        : "";
+      const shown = items.slice(0, 3).map(i =>
+        `<span class="day-event-chip ${i.cls} ${i.done ? "is-done" : ""}">${this.escapeHTML(i.label)}</span>`
+      ).join("");
+      const more = items.length > 3 ? `<span class="day-more">+${items.length - 3} more</span>` : "";
+      const dots = items.slice(0, 4).map(i => `<i class="${i.cls}"></i>`).join("");
+      const aria = `${cell.dateObj.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}${items.length ? `, ${items.length} item${items.length === 1 ? "" : "s"}` : ""}`;
 
       return `
-        <button class="${classes}" data-date="${key}">
+        <button type="button" class="${classes}" data-date="${key}" aria-label="${this.escapeHTML(aria)}" ${key === this.selectedDate ? 'aria-pressed="true"' : ""}>
           <span class="day-number">${cell.dateObj.getDate()}</span>
           <span class="day-events">${shown}${more}</span>
+          <span class="day-dots">${dots}</span>
         </button>
       `;
-    }).join('');
-
-    grid.querySelectorAll(".calendar-day").forEach(btn => {
-      btn.addEventListener("click", () => {
-        this.selectedDate = btn.dataset.date;
-        // Selecting a day from an adjacent month follows it.
-        const [y, m] = this.selectedDate.split("-").map(Number);
-        if (y !== this.calendarYear || m - 1 !== this.calendarMonth) {
-          this.calendarYear = y;
-          this.calendarMonth = m - 1;
-        }
-        this.renderCalendar();
-        this.renderAgenda();
-      });
-    });
+    }).join("");
   }
 
-  // Agenda for the selected calendar day
   renderAgenda() {
     const container = document.getElementById("agenda-list");
     const emptyState = document.getElementById("agenda-empty-state");
@@ -2528,337 +4072,91 @@ class StudyBuddyApp {
     if (!container) return;
 
     const selected = new Date(`${this.selectedDate}T00:00:00`);
-    const todayKey = this.toDateKey(new Date());
-    const yesterdayKey = this.toDateKey(new Date(Date.now() - 86400000));
-    const tomorrowKey = this.toDateKey(new Date(Date.now() + 86400000));
-
+    const days = this.daysUntil(this.selectedDate);
     if (titleEl) {
-      let label = this.selectedDate === todayKey ? "Today"
-        : this.selectedDate === tomorrowKey ? "Tomorrow"
-        : this.selectedDate === yesterdayKey ? "Yesterday"
+      titleEl.textContent = days === 0 ? "Today" : days === 1 ? "Tomorrow" : days === -1 ? "Yesterday"
         : selected.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-      titleEl.textContent = `${label}'s Agenda`;
     }
 
     const dayEvents = this.events
       .filter(ev => ev.date === this.selectedDate)
-      .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+      .sort((a, b) => String(a.startTime || "").localeCompare(String(b.startTime || "")));
+    const dueTasks = this.tasks.filter(t => t.dueDate === this.selectedDate);
+    const total = dayEvents.length + dueTasks.length;
 
-    if (countEl) {
-      countEl.textContent = `${dayEvents.length} event${dayEvents.length === 1 ? '' : 's'}`;
-    }
+    if (countEl) countEl.textContent = `${total} item${total === 1 ? "" : "s"}`;
 
-    if (dayEvents.length === 0) {
+    if (total === 0) {
       container.innerHTML = "";
       emptyState?.classList.remove("hidden");
       return;
     }
-
     emptyState?.classList.add("hidden");
 
-    container.innerHTML = dayEvents.map(ev => {
+    const taskHtml = dueTasks.map(t => `
+      <div class="agenda-item type-due ${t.completed ? "is-done" : ""}" data-task-id="${this.escapeHTML(t.id)}" role="button" tabindex="0">
+        <div class="agenda-time">
+          <button type="button" class="check ${t.completed ? "checked" : ""}" data-action="toggle-task" aria-label="${t.completed ? "Mark as not done" : "Mark as done"}"><i class="fa-solid fa-check"></i></button>
+        </div>
+        <div class="agenda-content">
+          <div class="agenda-title">${this.escapeHTML(t.title)}</div>
+          <div class="agenda-tags">
+            <span class="badge badge-violet"><i class="fa-solid fa-list-check"></i> Assignment due</span>
+            <span class="chip" style="--subj: ${this.subjectColor(t.subject)}">${this.escapeHTML(t.subject || "General")}</span>
+          </div>
+        </div>
+      </div>
+    `).join("");
+
+    const eventHtml = dayEvents.map(ev => {
       const typeInfo = this.eventTypeInfo(ev.type);
       const countdown = this.formatCountdown(ev);
-      const duration = this.formatDurationShort(
-        Math.round((this.eventEnd(ev) - this.eventStart(ev)) / 60000)
-      );
-
+      const duration = this.formatDurationShort(Math.round((this.eventEnd(ev) - this.eventStart(ev)) / 60000));
       return `
-        <div class="agenda-item type-${ev.type}">
+        <div class="agenda-item type-${this.eventTypeKey(ev.type)}" data-event-id="${this.escapeHTML(ev.id)}" role="button" tabindex="0">
           <div class="agenda-time">
-            <span>${this.escapeHTML((ev.startTime || "").slice(0, 5))}</span>
+            <span>${this.formatHM(ev.startTime)}</span>
             <span class="agenda-duration">${duration}</span>
           </div>
           <div class="agenda-content">
             <div class="agenda-title">${this.escapeHTML(ev.title)}</div>
             <div class="agenda-tags">
-              <span class="badge badge-primary">${typeInfo.label}</span>
-              ${ev.subject ? `<span class="badge badge-sky">${this.escapeHTML(ev.subject)}</span>` : ""}
-              ${ev.location ? `<span class="agenda-meta"><i class="fa-solid fa-location-dot"></i> ${this.escapeHTML(ev.location)}</span>` : ""}
+              <span class="chip chip-plain"><i class="${typeInfo.icon}"></i>&nbsp;${typeInfo.label}</span>
+              ${ev.subject ? `<span class="chip" style="--subj: ${this.subjectColor(ev.subject)}">${this.escapeHTML(ev.subject)}</span>` : ""}
+              ${ev.location ? `<span class="agenda-meta"><i class="fa-solid fa-location-dot"></i> ${this.linkifyLocation(ev.location)}</span>` : ""}
             </div>
             ${ev.notes ? `<p class="agenda-notes">${this.escapeHTML(ev.notes)}</p>` : ""}
+            <span class="agenda-countdown ${countdown.state === "now" ? "is-now" : ""} ${countdown.state === "past" ? "is-past" : ""}">${this.escapeHTML(countdown.text)}</span>
           </div>
           <div class="agenda-actions">
-            <span class="agenda-countdown ${countdown.state === 'now' ? 'is-now' : ''} ${countdown.state === 'past' ? 'is-past' : ''}">
-              ${this.escapeHTML(countdown.text)}
-            </span>
-            <button class="btn-icon-action" data-event-id="${ev.id}" data-action="edit" title="Edit event">
-              <i class="fa-solid fa-pen-to-square"></i>
-            </button>
-            <button class="btn-icon-action delete" data-event-id="${ev.id}" data-action="delete" title="Delete event">
-              <i class="fa-regular fa-trash-can"></i>
-            </button>
+            <button type="button" class="icon-btn icon-btn-sm icon-btn-danger" data-action="delete" title="Delete event" aria-label="Delete event"><i class="fa-regular fa-trash-can"></i></button>
           </div>
         </div>
       `;
-    }).join('');
+    }).join("");
 
-    container.querySelectorAll("[data-action='edit']").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const ev = this.events.find(e => e.id === btn.dataset.eventId);
-        if (ev) this.openEventModal(ev);
-      });
-    });
-
-    container.querySelectorAll("[data-action='delete']").forEach(btn => {
-      btn.addEventListener("click", () => this.deleteEvent(btn.dataset.eventId));
-    });
+    container.innerHTML = taskHtml + eventHtml;
   }
 
-  // Render To-Do List (Assignments)
-  renderTasks() {
-    const container = document.getElementById("task-cards-list");
-    const emptyState = document.getElementById("tasks-empty-state");
-    const countLabel = document.getElementById("tasks-count-label");
-    if (!container) return;
-
-    let filtered = this.tasks.filter(t => {
-      // Search
-      const matchSearch = !this.taskSearch ||
-        t.title.toLowerCase().includes(this.taskSearch) ||
-        t.subject.toLowerCase().includes(this.taskSearch) ||
-        (t.description && t.description.toLowerCase().includes(this.taskSearch));
-
-      // Status
-      const matchStatus = this.taskStatusFilter === "all" ? true :
-        this.taskStatusFilter === "completed" ? t.completed : !t.completed;
-
-      // Priority
-      const matchPriority = this.taskPriorityFilter === "all" ? true : t.priority === this.taskPriorityFilter;
-
-      // Subject
-      const matchSubject = this.taskSubjectFilter === "all" ? true : t.subject === this.taskSubjectFilter;
-
-      return matchSearch && matchStatus && matchPriority && matchSubject;
-    });
-
-    if (countLabel) {
-      countLabel.textContent = `Showing ${filtered.length} assignment${filtered.length === 1 ? '' : 's'}`;
-    }
-
-    if (filtered.length === 0) {
-      container.innerHTML = "";
-      emptyState?.classList.remove("hidden");
-      return;
-    }
-
-    emptyState?.classList.add("hidden");
-
-    container.innerHTML = filtered.map(task => {
-      const due = this.formatDueDateBadge(task.dueDate);
-      const priorityClass = `badge-${task.priority}`;
-
-      return `
-        <div class="task-card ${task.completed ? 'completed' : ''}" id="task-card-${task.id}">
-          <div class="task-checkbox-wrapper">
-            <input type="checkbox" class="task-checkbox" data-task-id="${task.id}" ${task.completed ? 'checked' : ''} aria-label="Mark task as complete">
-          </div>
-          <div class="task-main">
-            <div class="task-header-line">
-              <span class="task-title">${this.escapeHTML(task.title)}</span>
-              <span class="badge ${priorityClass}">${task.priority.toUpperCase()}</span>
-              <span class="badge badge-sky">${this.escapeHTML(task.subject)}</span>
-            </div>
-            ${task.description ? `<p class="task-details">${this.escapeHTML(task.description)}</p>` : ''}
-            <div class="task-meta-bar">
-              <span class="task-meta-item ${due.isOverdue && !task.completed ? 'overdue' : ''}">
-                <i class="fa-regular fa-calendar"></i> ${due.text}
-              </span>
-              <span class="task-meta-item">
-                <i class="fa-regular fa-clock"></i> ~${task.estimatedTime || 45} mins
-              </span>
-            </div>
-          </div>
-          <div class="task-actions">
-            <button class="btn-icon-action edit" data-task-id="${task.id}" title="Edit Assignment" aria-label="Edit">
-              <i class="fa-solid fa-pen-to-square"></i>
-            </button>
-            <button class="btn-icon-action delete" data-task-id="${task.id}" title="Delete Assignment" aria-label="Delete">
-              <i class="fa-regular fa-trash-can"></i>
-            </button>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    // Attach listeners
-    container.querySelectorAll(".task-checkbox").forEach(cb => {
-      cb.addEventListener("change", (e) => {
-        this.toggleTaskCompletion(e.target.dataset.taskId);
-      });
-    });
-
-    container.querySelectorAll(".btn-icon-action.edit").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const task = this.tasks.find(t => t.id === btn.dataset.taskId);
-        if (task) this.openTaskModal(task);
-      });
-    });
-
-    container.querySelectorAll(".btn-icon-action.delete").forEach(btn => {
-      btn.addEventListener("click", () => {
-        this.deleteTask(btn.dataset.taskId);
-      });
-    });
-  }
-
-  // Render Daily Timetable
-  renderTimetable() {
-    const container = document.getElementById("timetable-slots-list");
-    const emptyState = document.getElementById("timetable-empty-state");
-    const dayTitle = document.getElementById("current-selected-day-title");
-    const dayCount = document.getElementById("day-slot-count");
-    if (!container) return;
-
-    if (dayTitle) dayTitle.textContent = `${this.selectedDay} Study Schedule`;
-
-    const daySlots = this.timetable
-      .filter(s => s.day === this.selectedDay)
-      .sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-    if (dayCount) {
-      dayCount.textContent = `${daySlots.length} Session${daySlots.length === 1 ? '' : 's'} Planned`;
-    }
-
-    if (daySlots.length === 0) {
-      container.innerHTML = "";
-      emptyState?.classList.remove("hidden");
-      return;
-    }
-
-    emptyState?.classList.add("hidden");
-
-    container.innerHTML = daySlots.map(slot => {
-      const durationStr = this.calculateDuration(slot.startTime, slot.endTime);
-      return `
-        <div class="schedule-card">
-          <div class="schedule-time-block">
-            <div class="time-range">${slot.startTime} - ${slot.endTime}</div>
-            <div class="time-duration">${durationStr}</div>
-          </div>
-          <div class="schedule-content">
-            <div class="schedule-tags">
-              <span class="badge badge-primary">${this.escapeHTML(slot.subject)}</span>
-              <span class="badge badge-sky">${this.escapeHTML(slot.type)}</span>
-              ${slot.completed ? '<span class="badge badge-success"><i class="fa-solid fa-check"></i> Completed</span>' : ''}
-            </div>
-            <div class="schedule-title">${this.escapeHTML(slot.title)}</div>
-            ${slot.location ? `
-              <div class="schedule-location">
-                <i class="fa-solid fa-location-dot"></i> ${this.escapeHTML(slot.location)}
-              </div>
-            ` : ''}
-          </div>
-          <div class="schedule-actions">
-            <button class="btn btn-sm ${slot.completed ? 'btn-ghost text-emerald' : 'btn-outline'}" data-slot-id="${slot.id}" data-action="toggle">
-              ${slot.completed ? '<i class="fa-solid fa-check"></i> Done' : 'Mark Done'}
-            </button>
-            <button class="btn-icon-action" data-slot-id="${slot.id}" data-action="edit" title="Edit session">
-              <i class="fa-solid fa-pen-to-square"></i>
-            </button>
-            <button class="btn-icon-action delete" data-slot-id="${slot.id}" data-action="delete" title="Delete session">
-              <i class="fa-regular fa-trash-can"></i>
-            </button>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    // Attach actions
-    container.querySelectorAll("[data-action='toggle']").forEach(btn => {
-      btn.addEventListener("click", () => this.toggleTimetableSlotComplete(btn.dataset.slotId));
-    });
-    container.querySelectorAll("[data-action='edit']").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const slot = this.timetable.find(s => s.id === btn.dataset.slotId);
-        if (slot) this.openTimetableModal(slot);
-      });
-    });
-    container.querySelectorAll("[data-action='delete']").forEach(btn => {
-      btn.addEventListener("click", () => this.deleteTimetableSlot(btn.dataset.slotId));
-    });
-  }
-
-  // Render Notes Section
-  renderNotes() {
-    const container = document.getElementById("notes-grid");
-    const emptyState = document.getElementById("notes-empty-state");
-    if (!container) return;
-
-    let filtered = this.notes.filter(note => {
-      const matchSearch = !this.noteSearch ||
-        note.title.toLowerCase().includes(this.noteSearch) ||
-        note.content.toLowerCase().includes(this.noteSearch) ||
-        note.subject.toLowerCase().includes(this.noteSearch);
-
-      const matchSubject = this.noteSubjectFilter === "all" ? true : note.subject === this.noteSubjectFilter;
-
-      return matchSearch && matchSubject;
-    });
-
-    if (filtered.length === 0) {
-      container.innerHTML = "";
-      emptyState?.classList.remove("hidden");
-      return;
-    }
-
-    emptyState?.classList.add("hidden");
-
-    container.innerHTML = filtered.map(note => {
-      const accent = note.color || "sky";
-      return `
-        <div class="note-card accent-${accent}">
-          <div>
-            <div class="note-header">
-              <h3 class="note-title">${this.escapeHTML(note.title)}</h3>
-              <button class="btn-icon-action delete" data-note-id="${note.id}" title="Delete Note">
-                <i class="fa-regular fa-trash-can"></i>
-              </button>
-            </div>
-            <span class="note-subject-tag">${this.escapeHTML(note.subject)}</span>
-            <p class="note-body">${this.escapeHTML(note.content)}</p>
-          </div>
-          <div class="note-footer">
-            <span><i class="fa-regular fa-calendar"></i> ${note.updatedAt || 'Recent'}</span>
-            <button class="btn btn-sm btn-outline edit-note-btn" data-note-id="${note.id}">
-              <i class="fa-solid fa-pen"></i> Edit
-            </button>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    container.querySelectorAll(".edit-note-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const note = this.notes.find(n => n.id === btn.dataset.noteId);
-        if (note) this.openNoteModal(note);
-      });
-    });
-
-    container.querySelectorAll(".note-card .delete").forEach(btn => {
-      btn.addEventListener("click", () => {
-        this.deleteNote(btn.dataset.noteId);
-      });
-    });
-  }
-
-  // Render Marks & Grades
+  // ---------------------------------------------------------------------------
+  // Marks rendering
+  // ---------------------------------------------------------------------------
   renderMarks() {
     this.renderMarksSummary();
     this.renderMarksSubjects();
+    this.renderMarksTrend();
 
     const container = document.getElementById("marks-list");
     const emptyState = document.getElementById("marks-empty-state");
     if (!container) return;
 
-    let filtered = this.marks.filter(mark => {
+    const filtered = this.marks.filter(mark => {
       const haystack = `${mark.title} ${mark.subject}`.toLowerCase();
       const matchSearch = !this.markSearch || haystack.includes(this.markSearch);
-      const matchSubject = this.markSubjectFilter === "all" ? true : (mark.subject || "") === this.markSubjectFilter;
+      const matchSubject = this.markSubjectFilter === "all" || (mark.subject || "") === this.markSubjectFilter;
       return matchSearch && matchSubject;
     });
 
-    // Sorting
     const dateOf = m => (m.date ? new Date(m.date + "T00:00:00").getTime() : 0);
     switch (this.markSort) {
       case "oldest": filtered.sort((a, b) => dateOf(a) - dateOf(b)); break;
@@ -2870,9 +4168,14 @@ class StudyBuddyApp {
     if (filtered.length === 0) {
       container.innerHTML = "";
       emptyState?.classList.remove("hidden");
+      const h = emptyState?.querySelector("h3");
+      const p = emptyState?.querySelector("p");
+      if (h && p) {
+        if (this.marks.length) { h.textContent = "No matching marks"; p.textContent = "Try a different search or subject filter."; }
+        else { h.textContent = "No marks recorded yet"; p.textContent = "Add a test or exam score to start tracking your average."; }
+      }
       return;
     }
-
     emptyState?.classList.add("hidden");
 
     container.innerHTML = filtered.map(mark => {
@@ -2882,52 +4185,29 @@ class StudyBuddyApp {
       const dateLabel = mark.date
         ? new Date(mark.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
         : "No date";
-
       return `
-        <div class="mark-card grade-${band}">
-          <div class="mark-card-top">
-            <div style="min-width: 0;">
-              <div class="mark-card-title">${this.escapeHTML(mark.title)}</div>
-              <div class="mark-card-tags">
-                <span class="badge badge-primary">${this.escapeHTML(mark.subject)}</span>
-                <span class="badge badge-sky">${this.markTypeLabel(mark.type)}</span>
-                ${Number(mark.weight) > 0 ? `<span class="mark-grade-chip">${mark.weight}% weight</span>` : ""}
-              </div>
-            </div>
-            <div class="mark-score-badge grade-${band}">
-              <span class="mark-percent">${percent === null ? "—" : percent + "%"}</span>
-              <span class="mark-fraction">${this.formatScore(mark.score)}/${this.formatScore(mark.maxMarks)}</span>
-            </div>
+        <div class="mark-row" data-mark-id="${this.escapeHTML(mark.id)}" role="button" tabindex="0">
+          <div class="mark-score grade-${band}">
+            <span class="mark-percent">${percent === null ? "—" : `${percent}%`}</span>
+            <span class="mark-fraction">${this.formatScore(mark.score)}/${this.formatScore(mark.maxMarks)}</span>
           </div>
-
-          ${mark.notes ? `<p class="mark-notes">${this.escapeHTML(mark.notes)}</p>` : ""}
-
-          <div class="mark-card-footer">
-            <span><i class="fa-regular fa-calendar"></i> ${dateLabel}</span>
-            <span class="mark-grade-chip">Grade ${grade}</span>
-            <div class="mark-card-actions">
-              <button class="btn-icon-action edit-mark-btn" data-mark-id="${mark.id}" title="Edit mark">
-                <i class="fa-solid fa-pen-to-square"></i>
-              </button>
-              <button class="btn-icon-action delete delete-mark-btn" data-mark-id="${mark.id}" title="Delete mark">
-                <i class="fa-regular fa-trash-can"></i>
-              </button>
+          <div class="mark-main">
+            <div class="mark-title">${this.escapeHTML(mark.title)}</div>
+            <div class="mark-meta">
+              <span class="chip" style="--subj: ${this.subjectColor(mark.subject)}">${this.escapeHTML(mark.subject)}</span>
+              <span>${this.markTypeLabel(mark.type)}</span>
+              <span><i class="fa-regular fa-calendar"></i> ${dateLabel}</span>
+              ${Number(mark.weight) > 0 ? `<span>${this.escapeHTML(String(mark.weight))}% weight</span>` : ""}
             </div>
+            ${mark.notes ? `<p class="mark-notes">${this.escapeHTML(mark.notes)}</p>` : ""}
+          </div>
+          <span class="mark-grade-chip mark-grade-big band-${band}">${grade}</span>
+          <div class="mark-actions">
+            <button type="button" class="icon-btn icon-btn-sm icon-btn-danger" data-action="delete" title="Delete mark" aria-label="Delete mark"><i class="fa-regular fa-trash-can"></i></button>
           </div>
         </div>
       `;
-    }).join('');
-
-    container.querySelectorAll(".edit-mark-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const mark = this.marks.find(m => m.id === btn.dataset.markId);
-        if (mark) this.openMarkModal(mark);
-      });
-    });
-
-    container.querySelectorAll(".delete-mark-btn").forEach(btn => {
-      btn.addEventListener("click", () => this.deleteMark(btn.dataset.markId));
-    });
+    }).join("");
   }
 
   // Formats a score without trailing ".0" for whole numbers.
@@ -2940,18 +4220,11 @@ class StudyBuddyApp {
   renderMarksSummary() {
     const overall = this.marksOverallPercent();
     const averages = this.marksSubjectAverages();
-
-    const percentEl = document.getElementById("marks-overall-percent");
-    if (percentEl) percentEl.textContent = overall === null ? "—" : `${overall}%`;
-
-    const gradeEl = document.getElementById("marks-overall-grade");
-    if (gradeEl) gradeEl.textContent = this.markGrade(overall);
-
-    const countEl = document.getElementById("marks-count");
-    if (countEl) countEl.textContent = this.marks.length;
-
-    const bestEl = document.getElementById("marks-best-subject");
-    if (bestEl) bestEl.textContent = averages.length > 0 ? averages[0].subject : "—";
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set("marks-overall-percent", overall === null ? "—" : `${overall}%`);
+    set("marks-overall-grade", this.markGrade(overall));
+    set("marks-count", this.marks.length);
+    set("marks-best-subject", averages.length > 0 ? averages[0].subject : "—");
   }
 
   renderMarksSubjects() {
@@ -2960,82 +4233,125 @@ class StudyBuddyApp {
 
     const averages = this.marksSubjectAverages();
     if (averages.length === 0) {
-      container.innerHTML = `<p class="text-sm text-muted">No marks recorded yet — add one to see your subject averages.</p>`;
+      container.innerHTML = `<div class="empty-inline"><i class="fa-solid fa-chart-simple"></i><span>Subject averages appear once you record a mark.</span></div>`;
       return;
     }
 
     container.innerHTML = averages.map(({ subject, percent, count }) => {
       const band = this.markGradeBand(percent);
-      const color = band === "high" ? "var(--emerald-500)" : band === "low" ? "var(--rose-500)" : "var(--amber-500)";
       return `
-        <div class="marks-subject-row">
+        <div class="marks-subject-row" style="--subj: ${this.subjectColor(subject)}">
           <div class="marks-subject-header">
             <span class="marks-subject-name">
-              ${this.escapeHTML(subject)}
-              <span class="mark-grade-chip">${this.markGrade(percent)}</span>
+              <span class="dot" style="--subj: ${this.subjectColor(subject)}"></span>
+              <span>${this.escapeHTML(subject)}</span>
+              <span class="mark-grade-chip band-${band}">${this.markGrade(percent)}</span>
             </span>
-            <span class="marks-subject-meta">${percent}% · ${count} test${count === 1 ? '' : 's'}</span>
+            <span class="marks-subject-meta">${percent}% · ${count} result${count === 1 ? "" : "s"}</span>
           </div>
           <div class="marks-bar-bg">
-            <div class="marks-bar-fill" style="width: ${Math.min(percent, 100)}%; background-color: ${color};"></div>
+            <div class="marks-bar-fill band-${band}" style="width: ${Math.min(percent, 100)}%"></div>
           </div>
         </div>
       `;
-    }).join('');
+    }).join("");
   }
 
-  // Render Progress & Focus Analytics
+  /** Line chart of the last 10 results (by date) as percentages. */
+  renderMarksTrend() {
+    const container = document.getElementById("marks-trend-chart");
+    if (!container) return;
+    const points = this.marks
+      .filter(m => this.markPercent(m) !== null)
+      .slice()
+      .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+      .slice(-10);
+
+    const hint = document.getElementById("marks-trend-hint");
+    if (points.length < 2) {
+      if (hint) hint.textContent = "";
+      container.innerHTML = `<div class="empty-inline"><i class="fa-solid fa-chart-line"></i><span>Record at least two marks to see your trend.</span></div>`;
+      return;
+    }
+
+    const W = 560, H = 170, padL = 30, padR = 12, padT = 12, padB = 22;
+    const innerW = W - padL - padR;
+    const innerH = H - padT - padB;
+    const x = i => padL + (points.length === 1 ? innerW / 2 : (i / (points.length - 1)) * innerW);
+    const y = p => padT + innerH - (Math.max(0, Math.min(100, p)) / 100) * innerH;
+    const coords = points.map((m, i) => ({ x: x(i), y: y(this.markPercent(m)), m }));
+    const line = coords.map((c, i) => `${i ? "L" : "M"}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" ");
+    const area = `${line} L${coords[coords.length - 1].x.toFixed(1)},${(padT + innerH).toFixed(1)} L${coords[0].x.toFixed(1)},${(padT + innerH).toFixed(1)} Z`;
+
+    const first = this.markPercent(points[0]);
+    const last = this.markPercent(points[points.length - 1]);
+    if (hint) {
+      const diff = Math.round((last - first) * 10) / 10;
+      hint.textContent = `Last ${points.length} · ${diff >= 0 ? "▲" : "▼"} ${Math.abs(diff)} pts`;
+    }
+
+    const gridLines = [0, 50, 100].map(v => `
+      <line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"></line>
+      <text x="${padL - 6}" y="${y(v) + 3}" text-anchor="end">${v}</text>`).join("");
+    const labels = coords.map((c, i) => (i === 0 || i === coords.length - 1 || coords.length <= 6)
+      ? `<text x="${c.x}" y="${H - 4}" text-anchor="middle">${c.m.date ? new Date(c.m.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</text>`
+      : "").join("");
+
+    container.innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Trend of your last ${points.length} marks, from ${first}% to ${last}%">
+        <g class="trend-grid">${gridLines}${labels}</g>
+        <path class="trend-area" d="${area}"></path>
+        <path class="trend-line" d="${line}"></path>
+        ${coords.map(c => `<circle class="trend-point band-${this.markGradeBand(this.markPercent(c.m))}" cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="4"><title>${this.escapeHTML(c.m.title)} — ${this.markPercent(c.m)}%</title></circle>`).join("")}
+      </svg>`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Focus & progress rendering
+  // ---------------------------------------------------------------------------
   renderProgressStats() {
     const total = this.tasks.length;
     const completed = this.tasks.filter(t => t.completed).length;
     const pending = total - completed;
     const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-    const badge = document.getElementById("completion-percentage-badge");
-    if (badge) badge.textContent = `${percent}% Completed`;
-
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set("completion-percentage-badge", `${percent}% done`);
     const bar = document.getElementById("progress-assignments-bar");
     if (bar) bar.style.width = `${percent}%`;
+    set("prog-completed-tasks", completed);
+    set("prog-pending-tasks", pending);
 
-    const progComp = document.getElementById("prog-completed-tasks");
-    if (progComp) progComp.textContent = completed;
+    const todayFocus = Number(this.focusLog[this.toDateKey(new Date())]) || 0;
+    set("pomodoro-sessions-counter", `${this.pomodoroSessions} session${this.pomodoroSessions === 1 ? "" : "s"} · ${this.formatMinutes(this.focusMinutes)} total`);
+    set("focus-goal-badge", `Today ${this.formatMinutes(todayFocus)} / ${this.formatMinutes(Number(this.settings.focusGoal) || 60)}`);
+    const week = this.currentWeekDates();
+    const weekTotal = week.reduce((sum, k) => sum + (Number(this.focusLog[k]) || 0), 0);
+    set("focus-week-total", this.formatMinutes(weekTotal));
+    this.renderWeekChart(document.getElementById("focus-week-chart"));
 
-    const progPend = document.getElementById("prog-pending-tasks");
-    if (progPend) progPend.textContent = pending;
-
-    const pomoSessionsEl = document.getElementById("pomodoro-sessions-counter");
-    if (pomoSessionsEl) pomoSessionsEl.textContent = `${this.pomodoroSessions} Session${this.pomodoroSessions === 1 ? '' : 's'} Logged`;
-
-    // Subject breakdown
-    const breakdownContainer = document.getElementById("subject-breakdown-list");
-    if (breakdownContainer) {
-      const subjectMap = {};
+    const breakdown = document.getElementById("subject-breakdown-list");
+    if (breakdown) {
+      const map = {};
       this.tasks.forEach(t => {
         const subj = t.subject || "General";
-        if (!subjectMap[subj]) subjectMap[subj] = { total: 0, completed: 0 };
-        subjectMap[subj].total++;
-        if (t.completed) subjectMap[subj].completed++;
+        if (!map[subj]) map[subj] = { total: 0, completed: 0 };
+        map[subj].total++;
+        if (t.completed) map[subj].completed++;
       });
-
-      const entries = Object.entries(subjectMap);
-      if (entries.length === 0) {
-        breakdownContainer.innerHTML = `<p class="text-sm text-muted">No subject data available yet.</p>`;
-      } else {
-        breakdownContainer.innerHTML = entries.map(([subj, data]) => {
-          const sPercent = Math.round((data.completed / data.total) * 100);
-          return `
-            <div class="subject-bar-item">
-              <div class="subject-bar-header">
-                <span>${this.escapeHTML(subj)}</span>
-                <span>${data.completed}/${data.total} tasks (${sPercent}%)</span>
-              </div>
-              <div class="subject-bar-bg">
-                <div class="subject-bar-fill" style="width: ${sPercent}%"></div>
-              </div>
+      const entries = Object.entries(map).sort((a, b) => b[1].total - a[1].total);
+      breakdown.innerHTML = entries.length === 0 ? "" : entries.map(([subj, data]) => {
+        const p = Math.round((data.completed / data.total) * 100);
+        return `
+          <div class="subject-bar-item" style="--subj: ${this.subjectColor(subj)}">
+            <div class="subject-bar-header">
+              <span class="chip" style="--subj: ${this.subjectColor(subj)}">${this.escapeHTML(subj)}</span>
+              <span>${data.completed}/${data.total} · ${p}%</span>
             </div>
-          `;
-        }).join('');
-      }
+            <div class="subject-bar-bg"><div class="subject-bar-fill" style="width: ${p}%"></div></div>
+          </div>
+        `;
+      }).join("");
     }
   }
 
@@ -4168,7 +5484,12 @@ class StudyBuddyApp {
         this.showToast("There's no entry for this day yet", "info");
         return;
       }
-      if (!confirm(`Delete the entry for ${this.journalFormatDate(date)}? This can't be undone.`)) return;
+      const ok = await this.confirmDialog({
+        title: "Delete this journal entry?",
+        message: `The entry for ${this.journalFormatDate(date)} will be permanently deleted. This can't be undone.`,
+        confirmLabel: "Delete entry"
+      });
+      if (!ok) return;
       this.journalEntries.splice(index, 1);
       this.journalDirty = false;
       await this.encryptAndSyncJournal();
@@ -4188,43 +5509,103 @@ class StudyBuddyApp {
   // 12. Helper Utilities
   // ===========================================================================
   formatDueDateBadge(dueDateStr) {
-    if (!dueDateStr) return { text: "No due date", isOverdue: false };
-
-    const due = new Date(dueDateStr + "T23:59:59");
-    const now = new Date();
-    const diffTime = due.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) {
-      return { text: `Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'}`, isOverdue: true };
-    } else if (diffDays === 0) {
-      return { text: "Due Today!", isOverdue: false };
-    } else if (diffDays === 1) {
-      return { text: "Due Tomorrow", isOverdue: false };
-    } else {
-      return { text: `Due in ${diffDays} days`, isOverdue: false };
+    const days = this.daysUntil(dueDateStr);
+    if (days === null) return { text: "No due date", isOverdue: false, isToday: false, days: null };
+    if (days < 0) {
+      const n = Math.abs(days);
+      return { text: `Overdue by ${n} day${n === 1 ? "" : "s"}`, isOverdue: true, isToday: false, days };
     }
+    if (days === 0) return { text: "Due today", isOverdue: false, isToday: true, days };
+    if (days === 1) return { text: "Due tomorrow", isOverdue: false, isToday: false, days };
+    const date = new Date(`${dueDateStr}T00:00:00`);
+    if (days < 7) {
+      return { text: `Due ${date.toLocaleDateString("en-US", { weekday: "long" })}`, isOverdue: false, isToday: false, days };
+    }
+    const sameYear = date.getFullYear() === new Date().getFullYear();
+    const label = date.toLocaleDateString("en-US", sameYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+    return { text: `Due ${label} · ${days} days`, isOverdue: false, isToday: false, days };
   }
 
   calculateDuration(start, end) {
     try {
-      const [sh, sm] = start.split(':').map(Number);
-      const [eh, em] = end.split(':').map(Number);
+      const [sh, sm] = start.split(":").map(Number);
+      const [eh, em] = end.split(":").map(Number);
       let diff = (eh * 60 + em) - (sh * 60 + sm);
       if (diff < 0) diff += 24 * 60; // Overnight wrap
-      const h = Math.floor(diff / 60);
-      const m = diff % 60;
-      if (h > 0 && m > 0) return `${h}h ${m}m`;
-      if (h > 0) return `${h} hr${h > 1 ? 's' : ''}`;
-      return `${m} mins`;
+      return this.formatMinutes(diff);
     } catch (e) {
       return "1h";
     }
   }
 
+  /** 95 -> "1h 35m", 45 -> "45m", 120 -> "2h". */
+  formatMinutes(total) {
+    const mins = Math.max(0, Math.round(Number(total) || 0));
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h && m) return `${h}h ${m}m`;
+    if (h) return `${h}h`;
+    return `${m}m`;
+  }
+
+  /** "14:30" -> "2:30 PM" */
+  formatHM(hm) {
+    if (!hm) return "";
+    const [h, m] = String(hm).split(":").map(Number);
+    if (isNaN(h)) return String(hm);
+    const d = new Date();
+    d.setHours(h, m || 0, 0, 0);
+    return this.formatClock(d);
+  }
+
+  /** "14:30" -> "2:30p", "09:00" -> "9a" — for tight calendar cells. */
+  formatHMShort(hm) {
+    if (!hm) return "";
+    const [h, m] = String(hm).split(":").map(Number);
+    if (isNaN(h)) return "";
+    const suffix = h < 12 ? "a" : "p";
+    const h12 = h % 12 || 12;
+    return m ? `${h12}:${String(m).padStart(2, "0")}${suffix}` : `${h12}${suffix}`;
+  }
+
+  /** Stable colour for a subject name, picked from the 8 subject hues. */
+  subjectColor(subject) {
+    const name = String(subject || "General").trim().toLowerCase();
+    let hash = 2166136261;
+    for (let i = 0; i < name.length; i++) {
+      hash ^= name.charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return `var(--hue-${hash % 8})`;
+  }
+
+  /** Escapes a location and turns a bare http(s) link into a clickable one. */
+  linkifyLocation(location) {
+    const text = String(location || "");
+    const match = text.match(/https?:\/\/[^\s]+/);
+    if (!match) return this.escapeHTML(text);
+    const url = match[0];
+    const before = text.slice(0, match.index);
+    const after = text.slice(match.index + url.length);
+    let host = url;
+    try { host = new URL(url).hostname.replace(/^www\./, ""); } catch (e) { /* keep raw */ }
+    return `${this.escapeHTML(before)}<a href="${this.escapeHTML(url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${this.escapeHTML(host)}</a>${this.escapeHTML(after)}`;
+  }
+
+  playSound(kind) {
+    if (this.settings && this.settings.sounds === false) return;
+    if (kind === "chime") SoundFX.playChime();
+    else SoundFX.playSuccess();
+  }
+
+  celebrate() {
+    if (this.settings && this.settings.confetti === false) return;
+    ConfettiFX.launch();
+  }
+
   escapeHTML(str) {
-    if (!str) return "";
-    return str
+    if (str === null || str === undefined) return "";
+    return String(str)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
